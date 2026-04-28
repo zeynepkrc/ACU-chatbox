@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  web:
+    build: ./webapp
+    container_name: acu_web
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./webapp:/app
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15
+    container_name: acu_db
+    environment:
+      POSTGRES_DB: acudb
+      POSTGRES_USER: acuuser
+      POSTGRES_PASSWORD: acupass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
