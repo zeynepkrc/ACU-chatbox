@@ -1,3 +1,5 @@
 from django.contrib import admin
+from .models import PageContent, ChatMessage
 
-# Register your models here.
+admin.site.register(PageContent)
+admin.site.register(ChatMessage)
