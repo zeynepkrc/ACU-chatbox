@@ -17,6 +17,14 @@
 
         <h3>Answer:</h3>
         <p>{{ answer }}</p>
+        {% if sources %}
+        <h3>Sources:</h3>
+        <ul>
+            {% for source in sources %}
+                <li><a href="{{ source }}" target="_blank">{{ source }}</a></li>
+            {% endfor %}
+        </ul>
+    {% endif %}
     {% endif %}
 </body>
 </html>
