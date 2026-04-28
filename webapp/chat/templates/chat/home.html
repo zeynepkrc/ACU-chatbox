@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ACU AI Chatbot</title>
+</head>
+<body>
+    <h1>ACU AI Chatbot</h1>
+
+    <form method="get" action="/">
+        <input type="text" name="q" placeholder="Ask a question..." style="width:300px;">
+        <button type="submit">Ask</button>
+    </form>
+
+    {% if question %}
+        <h3>Question:</h3>
+        <p>{{ question }}</p>
+
+        <h3>Answer:</h3>
+        <p>{{ answer }}</p>
+    {% endif %}
+</body>
+</html>
