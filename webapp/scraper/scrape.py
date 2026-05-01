@@ -2,94 +2,223 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
-import time
 import pandas as pd
+import time
+import csv
 
 BASE = "https://obs.acibadem.edu.tr/oibs/bologna/"
+LIST_URL = BASE + "unitSelection.aspx?type=lis&lang=tr"
 
-PROGRAM_TYPES = {
-    "lis": "Lisans",
-   
-}
+SECTIONS = [
+    "Eğitim Türü (Amaçlar) ve Hedefler",
+    "Program Hakkında",
+    "Program Profili",
+    "Program Yetkilileri",
+    "Alınacak Derece",
+    "Kabul Koşulları",
+    "Üst Kademeye Geçiş",
+    "Mezuniyet Koşulları",
+    "Önceki Öğrenmenin Tanınması",
+    "Yeterlilik Koşulları ve Kuralları",
+    "İstihdam Olanakları",
+    "Program Yeterlikleri",
+    "Dersler",
+    "Ders & Program Yeterlilikleri İlişkisi",
+    "TYYÇ - Program Yeterlilikleri İlişkisi",
+    "Akademik Personel",
+    "İletişim",
+]
+
+MENU_WORDS = [
+    "Bilgi Paketi",
+    "Kurumsal Bilgiler",
+    "Akademik Birimler",
+    "Öğrenciler İçin Genel Bilgiler",
+    "Erasmus Beyannamesi",
+    "Bologna Süreci",
+    "www.prolizyazilim.com",
+]
+
+def clean_text(text):
+    return " ".join(text.split())
+
+def is_bad_menu_text(text):
+    text = clean_text(text)
+    count = sum(1 for w in MENU_WORDS if w in text)
+    return text.startswith("Bilgi Paketi") and count >= 4
+
+def collect_text_candidates(driver):
+    candidates = []
+
+    # aktif sayfadaki tüm görünür textleri al
+    try:
+        texts = driver.execute_script("""
+        const arr = [];
+        const els = document.querySelectorAll("body, div, table, tbody, tr, td, span, p");
+        for (const el of els) {
+            const style = window.getComputedStyle(el);
+            const txt = (el.innerText || "").trim();
+
+            if (
+                txt.length > 40 &&
+                style.display !== "none" &&
+                style.visibility !== "hidden"
+            ) {
+                arr.push(txt);
+            }
+        }
+        return arr;
+        """)
+        candidates.extend(texts)
+    except:
+        pass
+
+    # iframe varsa onların içini de gez
+    try:
+        frames = driver.find_elements(By.TAG_NAME, "iframe")
+        for i in range(len(frames)):
+            try:
+                driver.switch_to.frame(frames[i])
+
+                texts = driver.execute_script("""
+                const arr = [];
+                const els = document.querySelectorAll("body, div, table, tbody, tr, td, span, p");
+                for (const el of els) {
+                    const style = window.getComputedStyle(el);
+                    const txt = (el.innerText || "").trim();
+
+                    if (
+                        txt.length > 40 &&
+                        style.display !== "none" &&
+                        style.visibility !== "hidden"
+                    ) {
+                        arr.push(txt);
+                    }
+                }
+                return arr;
+                """)
+                candidates.extend(texts)
+
+                driver.switch_to.default_content()
+            except:
+                driver.switch_to.default_content()
+    except:
+        pass
+
+    clean_candidates = []
+    seen = set()
+
+    for c in candidates:
+        c = clean_text(c)
+        if c and c not in seen:
+            clean_candidates.append(c)
+            seen.add(c)
+
+    return clean_candidates
+
+def get_best_content(driver, section):
+    candidates = collect_text_candidates(driver)
+
+    good = []
+
+    for text in candidates:
+        if is_bad_menu_text(text):
+            continue
+
+        score = len(text)
+
+        if section in text:
+            score += 2000
+
+        if text.startswith(section):
+            score += 3000
+
+        # Menü metniyse puan kır
+        for w in MENU_WORDS:
+            if w in text:
+                score -= 500
+
+        good.append((score, text))
+
+    if not good:
+        return ""
+
+    good.sort(reverse=True, key=lambda x: x[0])
+    return good[0][1]
 
 service = Service(ChromeDriverManager().install())
 driver = webdriver.Chrome(service=service)
 
-program_links = []
+# 1) Lisans programlarını bul
+driver.get(LIST_URL)
+time.sleep(4)
 
-# 1) Ön Lisans + Lisans + Yüksek Lisans + Doktora programlarını topla
-for type_code, type_name in PROGRAM_TYPES.items():
-    url = BASE + f"unitSelection.aspx?type={type_code}&lang=tr"
-    print("Program türü açılıyor:", type_name)
+programs = []
 
-    driver.get(url)
-    time.sleep(4)
+for el in driver.find_elements(By.TAG_NAME, "a"):
+    text = clean_text(el.text)
+    href = el.get_attribute("href")
 
-    elements = driver.find_elements(By.TAG_NAME, "a")
+    if text and href and "curUnit" in href and "curSunit" in href:
+        programs.append({
+            "degree_type": "Lisans",
+            "program": text,
+            "url": href
+        })
 
-    for el in elements:
-        href = el.get_attribute("href")
-        text = el.text.strip()
+unique_programs = []
+seen = set()
 
-        if href and "curUnit" in href and "curSunit" in href:
-            program_links.append({
-                "degree_type": type_name,
-                "program": text,
-                "url": href
-            })
+for p in programs:
+    if p["url"] not in seen:
+        unique_programs.append(p)
+        seen.add(p["url"])
 
-print(f"{len(program_links)} program bulundu.")
+print(f"{len(unique_programs)} lisans programı bulundu.")
 
 data = []
 
-# 2) Her programın Bologna sekmelerini scrape et
-for prog in program_links:
-    print("\nBölüm:", prog["degree_type"], "-", prog["program"])
+# 2) Her lisans programında her başlığı tıkla
+for prog in unique_programs:
+    print("\nBölüm:", prog["program"])
 
-    try:
-        driver.get(prog["url"])
-        time.sleep(3)
+    for section in SECTIONS:
+        try:
+            driver.get(prog["url"])
+            time.sleep(3)
 
-        menu_items = driver.find_elements(By.TAG_NAME, "a")
+            el = driver.find_element(By.LINK_TEXT, section)
+            driver.execute_script("arguments[0].click();", el)
+            time.sleep(4)
 
-        menu_texts = []
-        for m in menu_items:
-            t = m.text.strip()
-            if t:
-                menu_texts.append(t)
+            content = get_best_content(driver, section)
 
-        menu_texts = list(dict.fromkeys(menu_texts))
+            if not content or is_bad_menu_text(content):
+                print("  ❌ alınamadı:", section, "|", content[:80])
+            else:
+                print("  ✔", section, "|", content[:120])
 
-        for section in menu_texts:
-            try:
-                driver.get(prog["url"])
-                time.sleep(2)
+            data.append({
+                "degree_type": prog["degree_type"],
+                "program": prog["program"],
+                "section": section,
+                "url": driver.current_url,
+                "content": content
+            })
 
-                el = driver.find_element(By.LINK_TEXT, section)
-                driver.execute_script("arguments[0].click();", el)
-                time.sleep(3)
-
-                content = driver.find_element(By.TAG_NAME, "body").text
-
-                data.append({
-                    "degree_type": prog["degree_type"],
-                    "program": prog["program"],
-                    "section": section,
-                    "url": driver.current_url,
-                    "content": content
-                })
-
-                print("  ✔", section)
-
-            except Exception:
-                pass
-
-    except Exception as e:
-        print("Hata:", prog["program"], e)
+        except Exception as e:
+            print("  Hata:", section, e)
 
 df = pd.DataFrame(data)
-df.to_csv("bologna_all_degree_programs.csv", index=False, encoding="utf-8-sig")
+
+df.to_csv(
+    "bologna_lisans_programs_full.csv",
+    index=False,
+    sep="|",
+    encoding="utf-8-sig",
+    quoting=csv.QUOTE_ALL
+)
 
 driver.quit()
 
-print("Bitti. bologna_all_degree_programs.csv oluşturuldu.")
+print("Bitti. bologna_lisans_programs_full.csv oluşturuldu.")
