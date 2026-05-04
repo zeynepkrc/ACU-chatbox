@@ -14,7 +14,7 @@ From the repository root:
 docker compose up --build
 ```
 
-- **Web:** http://localhost:8001 by default (`DJANGO_PORT`; maps to Gunicorn on 8000 inside the container). Admin: `/admin/` after you create a superuser.
+- **Web:** http://localhost:8000 by default (`DJANGO_PORT`; maps to Gunicorn on 8000 inside the container). Admin: `/admin/` after you create a superuser.
 - **Database:** PostgreSQL is reachable from the host on port `5433` by default (`POSTGRES_PUBLISH_PORT`; inside Compose the hostname is `db` on port `5432`).
 
 On first start the `web` service runs migrations, then starts Gunicorn.
