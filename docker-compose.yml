@@ -1,0 +1,4 @@
+# Application and database services are defined in the Docker + PostgreSQL phase.
+name: acibadem-chatbot
+
+services: {}

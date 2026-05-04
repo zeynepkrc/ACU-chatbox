@@ -1,0 +1,1 @@
+# Runtime dependencies are pinned when the Dockerized Django stack is added.
