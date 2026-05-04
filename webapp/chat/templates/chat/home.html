@@ -1,30 +1,165 @@
+{% load static %}
 <!DOCTYPE html>
-<html>
+<html lang="tr">
 <head>
+    <meta charset="UTF-8">
     <title>ACU AI Chatbot</title>
+    <link rel="stylesheet" href="{% static 'chat/css/style.css' %}">
 </head>
+
 <body>
-    <h1>ACU AI Chatbot</h1>
-    <form method="get" action="/">
-        <input type="text" name="q" placeholder="Ask a question..." style="width:300px;">
-        <button type="submit">Ask</button>
-    </form>
+    <div class="app-layout">
 
-    {% if question %}
-        <h3>Question:</h3>
-        <p>{{ question }}</p>
+        <!-- LEFT SIDEBAR -->
+        <aside class="sidebar">
+            <div class="sidebar-top">
+                <div class="brand">
+                    <div class="brand-icon">A</div>
+                    <span>ACU AI</span>
+                </div>
 
-        <h3>Answer:</h3>
-        <p>{{ answer }}</p>
-    {% endif %}
+                <a href="/" class="new-chat-btn">+ New Chat</a>
+            </div>
 
-    {% if sources %}
-        <h3>Sources:</h3>
-        <ul>
-            {% for source in sources %}
-                <li><a href="{{ source }}" target="_blank">{{ source }}</a></li>
-            {% endfor %}
-        </ul>
-    {% endif %}
+            <div class="sidebar-history">
+                <p class="sidebar-title">Chats</p>
+                <div class="history-item">Acıbadem Üniversitesi</div>
+                <div class="history-item">Bölümler hakkında</div>
+                <div class="history-item">Kampüs bilgisi</div>
+            </div>
+
+            <div class="sidebar-bottom">
+                <div class="sidebar-user">ACU AI Chatbot</div>
+            </div>
+        </aside>
+
+        <!-- MAIN CHAT AREA -->
+        <div class="chat-page">
+
+            <main class="chat-container" id="chatContainer">
+
+                <header class="welcome-section">
+                    <h1>ACU AI CHATBOT'A HOŞGELDİNİZ.</h1>
+                    <p>Acıbadem Üniversitesi hakkında merak ettiğiniz soruları sorabilirsiniz.</p>
+                </header>
+
+                {% if question %}
+                    <div class="message-row user-row">
+                        <div class="message-bubble user-bubble">
+                            <div class="message-name">Siz</div>
+                            <p>{{ question }}</p>
+                        </div>
+                    </div>
+
+                    <div class="message-row ai-row">
+                        <div class="message-bubble ai-bubble">
+                            <div class="message-name">ACU AI</div>
+                            <p>{{ answer }}</p>
+
+                            {% if sources %}
+                                <div class="source-box">
+                                    <span>Source:</span>
+                                    {% for source in sources %}
+                                        <a href="{{ source }}" target="_blank">{{ source }}</a>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+
+            </main>
+
+            <form method="get" action="/" class="chat-input-area">
+                <input 
+                    type="text" 
+                    name="q" 
+                    placeholder="Acıbadem Üniversitesi hakkında soru sorun..."
+                    autocomplete="off"
+                    required
+                >
+                <button type="submit">Gönder</button>
+            </form>
+
+            <footer class="chat-footer">
+                ACU AI CHATBOT can make mistakes. Check important info.
+                <button type="button" id="openCookieModal">See Cookie Preferences.</button>
+            </footer>
+
+        </div>
+    </div>
+
+    <!-- COOKIE MODAL -->
+    <div class="modal-overlay" id="cookieModal">
+        <div class="cookie-modal">
+            <button class="modal-close" id="closeCookieModal">×</button>
+
+            <h2>ACU AI Cookie Preferences</h2>
+
+            <p>
+                We use cookies and similar technologies to help improve your experience,
+                understand how this chatbot is used, and provide basic site functionality.
+            </p>
+
+            <div class="cookie-option">
+                <div>
+                    <h3>Strictly necessary cookies</h3>
+                    <p>Required for the website to work properly.</p>
+                </div>
+                <span class="always-on">Always on</span>
+            </div>
+
+            <div class="cookie-option">
+                <div>
+                    <h3>Analytics cookies</h3>
+                    <p>Help us understand usage and improve ACU AI Chatbot.</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox">
+                    <span></span>
+                </label>
+            </div>
+
+            <div class="modal-actions">
+                <button class="secondary-btn" id="rejectCookies">Reject all</button>
+                <button class="primary-btn" id="acceptCookies">Accept all</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById("chatContainer");
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        const modal = document.getElementById("cookieModal");
+        const openBtn = document.getElementById("openCookieModal");
+        const closeBtn = document.getElementById("closeCookieModal");
+        const acceptBtn = document.getElementById("acceptCookies");
+        const rejectBtn = document.getElementById("rejectCookies");
+
+        openBtn.addEventListener("click", () => {
+            modal.classList.add("active");
+        });
+
+        closeBtn.addEventListener("click", () => {
+            modal.classList.remove("active");
+        });
+
+        acceptBtn.addEventListener("click", () => {
+            modal.classList.remove("active");
+        });
+
+        rejectBtn.addEventListener("click", () => {
+            modal.classList.remove("active");
+        });
+
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) {
+                modal.classList.remove("active");
+            }
+        });
+    </script>
 </body>
 </html>
