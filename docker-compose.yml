@@ -1,4 +1,43 @@
-# Application and database services are defined in the Docker + PostgreSQL phase.
 name: acibadem-chatbot
 
-services: {}
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-acu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-acu}
+      POSTGRES_DB: ${POSTGRES_DB:-acu_chatbot}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PUBLISH_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  web:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-change-me}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,web,0.0.0.0}
+      POSTGRES_USER: ${POSTGRES_USER:-acu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-acu}
+      POSTGRES_DB: ${POSTGRES_DB:-acu_chatbot}
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+    ports:
+      - "${DJANGO_PORT:-8001}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./webapp:/app
+
+volumes:
+  postgres_data:
