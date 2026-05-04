@@ -10,7 +10,6 @@
 <body>
     <div class="app-layout">
 
-        <!-- LEFT SIDEBAR -->
         <aside class="sidebar">
             <div class="sidebar-top">
                 <div class="brand">
@@ -18,14 +17,18 @@
                     <span>ACU AI</span>
                 </div>
 
-                <a href="/" class="new-chat-btn">+ New Chat</a>
+                <button type="button" class="new-chat-btn" id="newChatBtn">+ New Chat</button>
+
+                <div class="sidebar-menu">
+                    <button type="button" class="sidebar-menu-item" id="searchChatsBtn">Search chats</button>
+                    <button type="button" class="sidebar-menu-item">Projects</button>
+                    <button type="button" class="sidebar-menu-item">More</button>
+                </div>
             </div>
 
             <div class="sidebar-history">
                 <p class="sidebar-title">Chats</p>
-                <div class="history-item">Acıbadem Üniversitesi</div>
-                <div class="history-item">Bölümler hakkında</div>
-                <div class="history-item">Kampüs bilgisi</div>
+                <div id="chatHistoryList"></div>
             </div>
 
             <div class="sidebar-bottom">
@@ -33,52 +36,56 @@
             </div>
         </aside>
 
-        <!-- MAIN CHAT AREA -->
         <div class="chat-page">
 
             <main class="chat-container" id="chatContainer">
 
-                <header class="welcome-section">
+                <header class="welcome-section" id="welcomeSection">
                     <h1>ACU AI CHATBOT'A HOŞGELDİNİZ.</h1>
                     <p>Acıbadem Üniversitesi hakkında merak ettiğiniz soruları sorabilirsiniz.</p>
                 </header>
 
-                {% if question %}
-                    <div class="message-row user-row">
-                        <div class="message-bubble user-bubble">
-                            <div class="message-name">Siz</div>
-                            <p>{{ question }}</p>
-                        </div>
-                    </div>
+                <div id="messagesArea"></div>
 
-                    <div class="message-row ai-row">
-                        <div class="message-bubble ai-bubble">
-                            <div class="message-name">ACU AI</div>
-                            <p>{{ answer }}</p>
+<div id="backendResponse" style="display: none;">
+    {% if question %}
+        <div class="message-row user-row">
+            <div class="message-bubble user-bubble">
+                <div class="message-name">Siz</div>
+                <p>{{ question }}</p>
+            </div>
+        </div>
 
-                            {% if sources %}
-                                <div class="source-box">
-                                    <span>Source:</span>
-                                    {% for source in sources %}
-                                        <a href="{{ source }}" target="_blank">{{ source }}</a>
-                                    {% endfor %}
-                                </div>
-                            {% endif %}
-                        </div>
+        <div class="message-row ai-row">
+            <div class="message-bubble ai-bubble">
+                <div class="message-name">ACU AI</div>
+                <p>{{ answer }}</p>
+
+                {% if sources %}
+                    <div class="source-box">
+                        <span>Source:</span>
+                        {% for source in sources %}
+                            <a href="{{ source }}" target="_blank">{{ source }}</a>
+                        {% endfor %}
                     </div>
                 {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
 
             </main>
 
-            <form method="get" action="/" class="chat-input-area">
+            <form method="get" action="/" class="chat-input-area" id="chatForm">
                 <input 
                     type="text" 
                     name="q" 
+                    id="questionInput"
                     placeholder="Acıbadem Üniversitesi hakkında soru sorun..."
                     autocomplete="off"
                     required
                 >
-                <button type="submit">Gönder</button>
+                <button type="submit" id="sendButton">Gönder</button>
             </form>
 
             <footer class="chat-footer">
@@ -89,7 +96,6 @@
         </div>
     </div>
 
-    <!-- COOKIE MODAL -->
     <div class="modal-overlay" id="cookieModal">
         <div class="cookie-modal">
             <button class="modal-close" id="closeCookieModal">×</button>
@@ -121,39 +127,283 @@
             </div>
 
             <div class="modal-actions">
-                <button class="secondary-btn" id="rejectCookies">Reject all</button>
-                <button class="primary-btn" id="acceptCookies">Accept all</button>
+                <button type="button" class="secondary-btn" id="rejectCookies">Reject all</button>
+                <button type="button" class="primary-btn" id="acceptCookies">Accept all</button>
             </div>
         </div>
     </div>
 
     <script>
         const chatContainer = document.getElementById("chatContainer");
-        if (chatContainer) {
+        const chatForm = document.getElementById("chatForm");
+        const questionInput = document.getElementById("questionInput");
+        const messagesArea = document.getElementById("messagesArea");
+        const welcomeSection = document.getElementById("welcomeSection");
+        const sendButton = document.getElementById("sendButton");
+        const chatHistoryList = document.getElementById("chatHistoryList");
+        const newChatBtn = document.getElementById("newChatBtn");
+
+        let chats = JSON.parse(localStorage.getItem("acuChats")) || [];
+        let currentChatId = localStorage.getItem("currentAcuChatId");
+
+        function saveChats() {
+            localStorage.setItem("acuChats", JSON.stringify(chats));
+            localStorage.setItem("currentAcuChatId", currentChatId);
+        }
+
+        function scrollToBottom() {
             chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function getCurrentChat() {
+            return chats.find(chat => String(chat.id) === String(currentChatId));
+        }
+
+        function createNewChat() {
+            const newChat = {
+                id: Date.now(),
+                title: "New Chat",
+                messages: []
+            };
+
+            chats.unshift(newChat);
+            currentChatId = newChat.id;
+            saveChats();
+            renderChatHistory();
+            renderMessages();
+        }
+
+        function renderChatHistory() {
+            chatHistoryList.innerHTML = "";
+
+            if (chats.length === 0) {
+                const empty = document.createElement("div");
+                empty.className = "empty-history";
+                empty.textContent = "Henüz chat yok";
+                chatHistoryList.appendChild(empty);
+                return;
+            }
+
+            chats.forEach(chat => {
+                const item = document.createElement("button");
+                item.type = "button";
+                item.className = "history-item";
+
+                if (String(chat.id) === String(currentChatId)) {
+                    item.classList.add("active-chat");
+                }
+
+                item.textContent = chat.title || "New Chat";
+
+                item.addEventListener("click", () => {
+                    currentChatId = chat.id;
+                    saveChats();
+                    renderChatHistory();
+                    renderMessages();
+                });
+
+                chatHistoryList.appendChild(item);
+            });
+        }
+
+        function renderMessages() {
+            messagesArea.innerHTML = "";
+
+            const chat = getCurrentChat();
+
+            if (!chat || chat.messages.length === 0) {
+                welcomeSection.style.display = "block";
+                return;
+            }
+
+            welcomeSection.style.display = "none";
+
+            chat.messages.forEach(message => {
+                if (message.role === "user") {
+                    addUserMessageToDOM(message.text);
+                } else {
+                    addAiMessageToDOM(message.text, message.sources || []);
+                }
+            });
+
+            scrollToBottom();
+        }
+
+        function addUserMessageToDOM(question) {
+            const row = document.createElement("div");
+            row.className = "message-row user-row";
+
+            const bubble = document.createElement("div");
+            bubble.className = "message-bubble user-bubble";
+
+            const name = document.createElement("div");
+            name.className = "message-name";
+            name.textContent = "Siz";
+
+            const p = document.createElement("p");
+            p.textContent = question;
+
+            bubble.appendChild(name);
+            bubble.appendChild(p);
+            row.appendChild(bubble);
+            messagesArea.appendChild(row);
+        }
+
+        function addAiMessageToDOM(answer, sources = []) {
+            const row = document.createElement("div");
+            row.className = "message-row ai-row";
+
+            const bubble = document.createElement("div");
+            bubble.className = "message-bubble ai-bubble";
+
+            const name = document.createElement("div");
+            name.className = "message-name";
+            name.textContent = "ACU AI";
+
+            const p = document.createElement("p");
+            p.textContent = answer;
+
+            bubble.appendChild(name);
+            bubble.appendChild(p);
+
+            if (sources.length > 0) {
+                const sourceBox = document.createElement("div");
+                sourceBox.className = "source-box";
+
+                const span = document.createElement("span");
+                span.textContent = "Source:";
+                sourceBox.appendChild(span);
+
+                sources.forEach(source => {
+                    const a = document.createElement("a");
+                    a.href = source;
+                    a.target = "_blank";
+                    a.textContent = source;
+                    sourceBox.appendChild(a);
+                });
+
+                bubble.appendChild(sourceBox);
+            }
+
+            row.appendChild(bubble);
+            messagesArea.appendChild(row);
+        }
+
+        function addLoadingMessage() {
+            const row = document.createElement("div");
+            row.className = "message-row ai-row loading-row";
+            row.innerHTML = `
+                <div class="message-bubble ai-bubble">
+                    <div class="message-name">ACU AI</div>
+                    <p>Yazıyor...</p>
+                </div>
+            `;
+            messagesArea.appendChild(row);
+            scrollToBottom();
+            return row;
+        }
+
+        chatForm.addEventListener("submit", async function(e) {
+            e.preventDefault();
+
+            const question = questionInput.value.trim();
+            if (!question) return;
+
+            let chat = getCurrentChat();
+
+            if (!chat) {
+                createNewChat();
+                chat = getCurrentChat();
+            }
+
+            chat.messages.push({
+                role: "user",
+                text: question
+            });
+
+            if (chat.title === "New Chat") {
+                chat.title = question.length > 32 ? question.slice(0, 32) + "..." : question;
+            }
+
+            saveChats();
+            renderChatHistory();
+            renderMessages();
+
+            questionInput.value = "";
+            const loadingMessage = addLoadingMessage();
+
+            sendButton.disabled = true;
+            sendButton.textContent = "Bekle";
+
+            try {
+                const response = await fetch("/?q=" + encodeURIComponent(question));
+                const htmlText = await response.text();
+
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlText, "text/html");
+
+                const aiBubble = doc.querySelector(".ai-bubble");
+                const answerText = aiBubble ? aiBubble.querySelector("p").textContent : "Cevap alınamadı.";
+
+                const sourceLinks = [];
+                if (aiBubble) {
+                    aiBubble.querySelectorAll(".source-box a").forEach(link => {
+                        sourceLinks.push(link.href);
+                    });
+                }
+
+                loadingMessage.remove();
+
+                chat.messages.push({
+                    role: "ai",
+                    text: answerText,
+                    sources: sourceLinks
+                });
+
+                saveChats();
+                renderMessages();
+
+            } catch (error) {
+                loadingMessage.remove();
+
+                chat.messages.push({
+                    role: "ai",
+                    text: "Bir hata oluştu. Lütfen tekrar deneyin.",
+                    sources: []
+                });
+
+                saveChats();
+                renderMessages();
+            }
+
+            sendButton.disabled = false;
+            sendButton.textContent = "Gönder";
+        });
+
+        newChatBtn.addEventListener("click", createNewChat);
+
+        if (chats.length === 0) {
+            createNewChat();
+        } else {
+            const existingChat = chats.find(chat => String(chat.id) === String(currentChatId));
+            if (!existingChat) {
+                currentChatId = chats[0].id;
+            }
+
+            renderChatHistory();
+            renderMessages();
         }
 
         const modal = document.getElementById("cookieModal");
         const openBtn = document.getElementById("openCookieModal");
         const closeBtn = document.getElementById("closeCookieModal");
         const acceptBtn = document.getElementById("acceptCookies");
-        const rejectBtn = document.getElementById("rejectCookies");
+        const rejectBtn = document.geStElementById("rejectCookies");
 
-        openBtn.addEventListener("click", () => {
-            modal.classList.add("active");
-        });
-
-        closeBtn.addEventListener("click", () => {
-            modal.classList.remove("active");
-        });
-
-        acceptBtn.addEventListener("click", () => {
-            modal.classList.remove("active");
-        });
-
-        rejectBtn.addEventListener("click", () => {
-            modal.classList.remove("active");
-        });
+        openBtn.addEventListener("click", () => modal.classList.add("active"));
+        closeBtn.addEventListener("click", () => modal.classList.remove("active"));
+        acceptBtn.addEventListener("click", () => modal.classList.remove("active"));
+        rejectBtn.addEventListener("click", () => modal.classList.remove("active"));
 
         modal.addEventListener("click", (e) => {
             if (e.target === modal) {
