@@ -5,8 +5,8 @@ class UniversityContent(models.Model):
     """Public web content ingested for the chatbot (one row per canonical source URL)."""
 
     class Source(models.TextChoices):
-        ACIBADEM_MAIN = "acibadem_main", "Acıbadem main site"
-        BOLOGNA_OBS = "bologna_obs", "OBS Bologna (public)"
+        MAIN = "main", "Acıbadem main website"
+        BOLOGNA = "bologna", "OBS / Bologna (public)"
 
     source = models.CharField(
         max_length=32,
