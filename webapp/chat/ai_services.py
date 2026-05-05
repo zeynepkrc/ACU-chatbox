@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import requests
@@ -15,15 +16,19 @@ from chat.models import ManualResponse
 logger = logging.getLogger(__name__)
 
 _JSON_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+_TOKEN_RE = re.compile(r"[\wçğıöşüÇĞİÖŞÜ]+", re.UNICODE)
+_OVERLAP_STOPWORDS: frozenset[str] = frozenset(
+    {"ve", "veya", "ile", "için", "ama", "fakat", "gibi", "olan", "mı", "mi", "mu", "mü", "bir", "bu"}
+)
 
 
 def _ollama_generate_url() -> str:
-    base = str(getattr(settings, "OLLAMA_BASE_URL", "http://127.0.0.1:11434")).rstrip("/")
+    base = str(getattr(settings, "OLLAMA_BASE_URL", "http://ollama:11434")).rstrip("/")
     return f"{base}/api/generate"
 
 
 def _ollama_model() -> str:
-    return str(getattr(settings, "OLLAMA_MODEL", "qwen2.5:7b"))
+    return str(getattr(settings, "OLLAMA_MODEL", "qwen2.5:1.5b"))
 
 
 def _request_timeout() -> tuple[float, float]:
@@ -63,40 +68,64 @@ def _manual_response_if_match(user_query: str) -> str | None:
 
 
 def _build_rag_prompt(user_query: str, context_block: str) -> str:
-    has_ctx = bool((context_block or "").strip())
-    if has_ctx:
-        system = (
-            "Sen bir Acıbadem Üniversitesi asistanısın. Sana sağlanan dokümanlardaki bilgileri kullanarak, "
-            "dürüst ve akademik bir dille cevap ver. Kullanıcının sorusuyla aynı dilde yanıt ver "
-            "(Türkçe soruda Türkçe, İngilizce soruda İngilizce).\n\n"
-            "Kurallar:\n"
-            "- Öncelikle RETRIEVED CONTEXT altındaki kurumsal kaynaklara dayan.\n"
-            "- Dokümanda bilgi yoksa veya yetersizse, genel bilgini kullanabilirsin; bu durumda bunu "
-            "açıkça belirt (ör. hangi kısmın dokümanda olmadığını kısaca söyle).\n"
-            "- Acıbadem'e özel ücret, tarih, kontenjan gibi iddiaları dokümanda yoksa uydurma.\n"
-            "- Gereksiz uzatma; kullanıcı ayrıntı istemedikçe özlü ol.\n"
-        )
-        ctx = context_block.strip()
-    else:
-        system = (
-            "Sen bir Acıbadem Üniversitesi asistanısın. İndekslenmiş doküman bulunamadı veya veritabanı "
-            "bağlamı yok.\n"
-            "Talimatlar:\n"
-            "- Selamlaşma veya genel eğitim konularında genel bilginle kısa yanıt ver; "
-            "kaynak olmadığını belirt.\n"
-            "- Acıbadem'e özel kesin bilgiler için https://www.acibadem.edu.tr veya OBS'e yönlendir; "
-            "uydurma.\n"
-            "- Dokümanda bilgi yoksa kendi genel bilgini kullanıyorsan bunu açıkça söyle.\n"
-        )
-        ctx = "(İndekslenmiş pasaj yok — yukarıdaki kurallara uy.)"
-
+    ctx = context_block.strip()
     return (
-        f"{system}\n"
-        f"=== RETRIEVED CONTEXT ===\n{ctx}\n"
-        f"=== END CONTEXT ===\n\n"
-        f"User question:\n{user_query.strip()}\n\n"
-        "Assistant answer:"
+        "CONTEXT:\n"
+        f"{ctx}\n\n"
+        "QUESTION:\n"
+        f"{user_query.strip()}\n\n"
+        "TASK:\n"
+        "Answer the QUESTION using ONLY the CONTEXT.\n\n"
+        "Rules:\n"
+        "* Do NOT use outside knowledge\n"
+        "* Do NOT generate general explanations\n"
+        "* Do NOT change topic\n"
+        "* If the answer is not in CONTEXT, say: \"Bilmiyorum.\"\n"
+        "* Answer in Turkish\n"
+        "* Keep answer short (max 2 sentences)"
     )
+
+
+def _tokenize_for_overlap(text: str) -> set[str]:
+    out: set[str] = set()
+    for t in _TOKEN_RE.findall((text or "").lower()):
+        if len(t) < 3 or t in _OVERLAP_STOPWORDS:
+            continue
+        out.add(t)
+    return out
+
+
+def _relevance_score(question: str, context: str) -> float:
+    q_tokens = _tokenize_for_overlap(question)
+    if not q_tokens:
+        return 0.0
+    c_tokens = _tokenize_for_overlap(context)
+    if not c_tokens:
+        return 0.0
+    overlap = q_tokens & c_tokens
+    # Soru token kapsama oranı: modelden bağımsız basit ve genel relevance metriği.
+    return len(overlap) / max(1, len(q_tokens))
+
+
+def _sanitize_user_facing_answer(text: str) -> str:
+    cleaned_lines: list[str] = []
+    for raw in (text or "").splitlines():
+        ln = raw.strip()
+        low = ln.lower()
+        if not ln:
+            continue
+        if low.startswith("url:"):
+            continue
+        if low.startswith("[bologna]") or low.startswith("[main]"):
+            continue
+        if low.startswith("bölüm:") or low.startswith("program:") or low.startswith("section:"):
+            continue
+        if "source_url" in low or "chunk" in low:
+            continue
+        cleaned_lines.append(ln)
+    out = " ".join(cleaned_lines).strip()
+    out = re.sub(r"\s+", " ", out)
+    return out
 
 
 def ask_ai(user_query: str, *, context_limit: int | None = None, timeout_sec: int | None = None) -> str:
@@ -124,13 +153,33 @@ def ask_ai(user_query: str, *, context_limit: int | None = None, timeout_sec: in
             return manual
 
         context = ""
+        debug_docs: list[dict[str, str]] = []
         try:
-            from services import build_context_bundle_for_ai
+            from services import build_context_bundle_for_ai_with_meta
 
-            context = build_context_bundle_for_ai(q, limit=context_limit)
+            context, debug_docs = build_context_bundle_for_ai_with_meta(q, limit=context_limit)
         except Exception:
             logger.exception("Context retrieval import or build failed")
             context = ""
+
+        logger.info("RAG request question=%r", q)
+        logger.info("RAG retrieved docs=%s", debug_docs)
+        logger.info("RAG retrieved context preview=%r", context[:1200])
+        print("QUESTION:", q)
+        print("DOC COUNT:", len(debug_docs))
+        print("CONTEXT:", context)
+        print(
+            "DOC TITLES/SOURCES:",
+            [f"{(d.get('title') or '').strip()} | {(d.get('source') or '').strip()}" for d in debug_docs],
+        )
+        if not context.strip():
+            logger.info("RAG empty/irrelevant context; returning Bilmiyorum.")
+            return "Bilmiyorum."
+        relevance = _relevance_score(q, context)
+        logger.info("RAG relevance score=%.3f", relevance)
+        if relevance < 0.25:
+            logger.info("RAG relevance below threshold; returning Bilmiyorum without model call.")
+            return "Bilmiyorum."
 
         prompt = _build_rag_prompt(q, context)
 
@@ -138,6 +187,12 @@ def ask_ai(user_query: str, *, context_limit: int | None = None, timeout_sec: in
             "model": _ollama_model(),
             "prompt": prompt,
             "stream": False,
+            "options": {
+                "temperature": 0,
+                "top_p": 0.3,
+                "repeat_penalty": 1.1,
+                "num_predict": 120,
+            },
         }
 
         url = _ollama_generate_url()
@@ -172,7 +227,10 @@ def ask_ai(user_query: str, *, context_limit: int | None = None, timeout_sec: in
 
         text = (data.get("response") or "").strip()
         if not text:
-            return "Model boş yanıt döndü. Lütfen soruyu kısaltıp tekrar deneyin."
+            return "Bilmiyorum."
+        text = _sanitize_user_facing_answer(text)
+        if not text:
+            return "Bilmiyorum."
 
         return text
     except Exception as exc:

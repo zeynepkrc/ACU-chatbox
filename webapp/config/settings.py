@@ -106,10 +106,9 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:8001",
 ]
 
-# Ollama: Docker web servisi ``OLLAMA_BASE_URL=http://ollama:11434`` ile override eder.
-# Yerel ``manage.py runserver`` için varsayılan host portu 11434.
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+# Ollama: Docker ağında servis adı ``ollama``; yerelde env ile override edin.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:1.5b")
 # Qwen vb. ağır modeller CPU'da uzun sürebilir; connect kısa, okuma üst sınırlı tutulur.
 OLLAMA_REQUEST_CONNECT_SEC = int(os.environ.get("OLLAMA_REQUEST_CONNECT_SEC", "45"))
 OLLAMA_REQUEST_TIMEOUT_SEC = int(os.environ.get("OLLAMA_REQUEST_TIMEOUT_SEC", "3600"))

@@ -8,17 +8,23 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
-    # CPU-only: do not attach NVIDIA runtime; Ollama will use CPU by default.
     networks:
       - acu-network
     volumes:
       - ollama_data:/root/.ollama
       - ./docker/ollama-entry.sh:/ollama-entry.sh:ro
     environment:
-      OLLAMA_START_MODEL: ${OLLAMA_START_MODEL:-qwen2.5:7b}
+      # Sabit küçük model: .env ile override edilmesin
+      OLLAMA_START_MODEL: tinyllama
     ports:
       - "${OLLAMA_HOST_PORT:-11434}:11434"
     entrypoint: ["/bin/sh", "/ollama-entry.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
   db:
     image: postgres:16-alpine
@@ -48,28 +54,46 @@ services:
     command:
       - /bin/sh
       - -c
-      - cd /app && python manage.py migrate --noinput && python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --reload --timeout 0 --graceful-timeout 600
+      - |
+        cd /app && \
+        python manage.py migrate --noinput && \
+        python manage.py collectstatic --noinput && \
+        exec gunicorn config.wsgi:application \
+        --bind 0.0.0.0:8000 \
+        --workers 2 \
+        --reload \
+        --timeout 180 \
+        --graceful-timeout 60
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-change-me}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,web,0.0.0.0}
+
       POSTGRES_USER: ${POSTGRES_USER:-acu}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-acu}
       POSTGRES_DB: ${POSTGRES_DB:-acu_chatbot}
       DATABASE_HOST: db
       DATABASE_PORT: "5432"
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
-      OLLAMA_REQUEST_CONNECT_SEC: ${OLLAMA_REQUEST_CONNECT_SEC:-45}
-      OLLAMA_REQUEST_TIMEOUT_SEC: ${OLLAMA_REQUEST_TIMEOUT_SEC:-3600}
+
+      # Sabit küçük model: .env ile override edilmesin
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: tinyllama
+
+      # Timeout değerleri sabit: .env ile override edilmesin
+      OLLAMA_REQUEST_CONNECT_SEC: "30"
+      OLLAMA_REQUEST_TIMEOUT_SEC: "120"
+
       RAG_CONTEXT_MAX_DOCUMENTS: ${RAG_CONTEXT_MAX_DOCUMENTS:-3}
+
     ports:
       - "${DJANGO_PORT:-8000}:8000"
+
     depends_on:
       db:
         condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
+
     volumes:
       - ./webapp:/app
 
