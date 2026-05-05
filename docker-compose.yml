@@ -1,9 +1,16 @@
 name: acibadem-chatbot
 
+networks:
+  acu-network:
+    driver: bridge
+
 services:
   ollama:
     image: ollama/ollama:latest
+    container_name: ollama
     # CPU-only: do not attach NVIDIA runtime; Ollama will use CPU by default.
+    networks:
+      - acu-network
     volumes:
       - ollama_data:/root/.ollama
       - ./docker/ollama-entry.sh:/ollama-entry.sh:ro
@@ -15,6 +22,8 @@ services:
 
   db:
     image: postgres:16-alpine
+    networks:
+      - acu-network
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-acu}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-acu}
@@ -34,6 +43,12 @@ services:
     build:
       context: ./webapp
       dockerfile: Dockerfile
+    networks:
+      - acu-network
+    command:
+      - /bin/sh
+      - -c
+      - cd /app && python manage.py migrate --noinput && python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --reload --timeout 0 --graceful-timeout 600
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-change-me}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
@@ -45,6 +60,7 @@ services:
       DATABASE_PORT: "5432"
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-phi3:mini}
+      OLLAMA_REQUEST_TIMEOUT_SEC: ${OLLAMA_REQUEST_TIMEOUT_SEC:-1800}
     ports:
       - "${DJANGO_PORT:-8000}:8000"
     depends_on:

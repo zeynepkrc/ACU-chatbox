@@ -28,6 +28,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -90,3 +91,11 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8001",
     "http://127.0.0.1:8001",
 ]
+
+# Ollama: Docker Compose içinde servis adı ``ollama`` — web konteynerinden localhost kullanılmaz.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "phi3:mini")
+# CPU'da phi3:mini uzun sürebilir; requests zaman aşımı Gunicorn worker süresinden düşük olmamalı.
+OLLAMA_REQUEST_TIMEOUT_SEC = int(os.environ.get("OLLAMA_REQUEST_TIMEOUT_SEC", "1800"))
+# RAG: Ollama'ya gönderilecek en fazla UniversityContent satırı (3–5 önerilir).
+RAG_CONTEXT_MAX_DOCUMENTS = int(os.environ.get("RAG_CONTEXT_MAX_DOCUMENTS", "5"))
