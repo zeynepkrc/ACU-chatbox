@@ -14,7 +14,7 @@ class UniversityContentAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("source",)
-    search_fields = ("title", "source_url", "content_text")
+    search_fields = ("title", "source_url", "content_text", "raw_text")
     readonly_fields = ("scraped_at", "updated_at")
     ordering = ("-updated_at",)
 

@@ -22,6 +22,11 @@ class UniversityContent(models.Model):
     content_text = models.TextField(
         help_text="Plain text with HTML removed and normalized whitespace.",
     )
+    raw_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="Searchable body copy; kept in sync with ingested plain text (e.g. academic staff content).",
+    )
     scraped_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
