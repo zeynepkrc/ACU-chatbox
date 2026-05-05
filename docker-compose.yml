@@ -1,6 +1,18 @@
 name: acibadem-chatbot
 
 services:
+  ollama:
+    image: ollama/ollama:latest
+    # CPU-only: do not attach NVIDIA runtime; Ollama will use CPU by default.
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./docker/ollama-entry.sh:/ollama-entry.sh:ro
+    environment:
+      OLLAMA_START_MODEL: ${OLLAMA_START_MODEL:-phi3:mini}
+    ports:
+      - "${OLLAMA_HOST_PORT:-11434}:11434"
+    entrypoint: ["/bin/sh", "/ollama-entry.sh"]
+
   db:
     image: postgres:16-alpine
     environment:
@@ -31,13 +43,18 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-acu_chatbot}
       DATABASE_HOST: db
       DATABASE_PORT: "5432"
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-phi3:mini}
     ports:
       - "${DJANGO_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
+      ollama:
+        condition: service_started
     volumes:
       - ./webapp:/app
 
 volumes:
   postgres_data:
+  ollama_data:
