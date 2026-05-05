@@ -11,6 +11,8 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+_JSON_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+
 
 def _ollama_generate_url() -> str:
     base = str(getattr(settings, "OLLAMA_BASE_URL", "http://ollama:11434")).rstrip("/")
@@ -18,35 +20,43 @@ def _ollama_generate_url() -> str:
 
 
 def _ollama_model() -> str:
-    return str(getattr(settings, "OLLAMA_MODEL", "phi3:mini"))
+    return str(getattr(settings, "OLLAMA_MODEL", "qwen2.5:7b"))
+
+
+def _request_timeout() -> tuple[float, float]:
+    """(connect, read) — ağır modellerde okuma süresi uzun olabilir."""
+    read_sec = float(int(getattr(settings, "OLLAMA_REQUEST_TIMEOUT_SEC", 3600)))
+    connect_sec = float(int(getattr(settings, "OLLAMA_REQUEST_CONNECT_SEC", 45)))
+    return (connect_sec, read_sec)
 
 
 def _build_rag_prompt(user_query: str, context_block: str) -> str:
     has_ctx = bool((context_block or "").strip())
     if has_ctx:
         system = (
-            "You are the official virtual assistant for Acıbadem University (ACU). "
-            "Answer clearly and professionally in the same language as the user's question "
-            "(Turkish if they wrote Turkish, English if they wrote English).\n\n"
-            "Rules:\n"
-            "- Base your answer primarily on the RETRIEVED CONTEXT below (public university pages).\n"
-            "- If the context does not fully answer the question, combine it with careful reasoning; "
-            "do not invent specific ACU fees, dates, or program rules not supported by the context.\n"
-            "- Be concise unless the user asks for detail.\n"
+            "Sen bir Acıbadem Üniversitesi asistanısın. Sana sağlanan dokümanlardaki bilgileri kullanarak, "
+            "dürüst ve akademik bir dille cevap ver. Kullanıcının sorusuyla aynı dilde yanıt ver "
+            "(Türkçe soruda Türkçe, İngilizce soruda İngilizce).\n\n"
+            "Kurallar:\n"
+            "- Öncelikle RETRIEVED CONTEXT altındaki kurumsal kaynaklara dayan.\n"
+            "- Dokümanda bilgi yoksa veya yetersizse, genel bilgini kullanabilirsin; bu durumda bunu "
+            "açıkça belirt (ör. hangi kısmın dokümanda olmadığını kısaca söyle).\n"
+            "- Acıbadem'e özel ücret, tarih, kontenjan gibi iddiaları dokümanda yoksa uydurma.\n"
+            "- Gereksiz uzatma; kullanıcı ayrıntı istemedikçe özlü ol.\n"
         )
         ctx = context_block.strip()
     else:
         system = (
-            "You are a helpful assistant for users asking about Acıbadem University (ACU). "
-            "INDEXED CONTEXT: none (no matching rows in the database, or DB unavailable).\n"
-            "Instructions:\n"
-            "- For greetings or general/educational questions (e.g. what the Bologna Process is), "
-            "answer briefly using general knowledge in the user's language.\n"
-            "- For Acıbadem-specific facts (programs, fees, deadlines, contacts), say you cannot verify "
-            "them without indexed content and suggest checking https://www.acibadem.edu.tr or OBS.\n"
-            "- Do not fabricate ACU-specific details.\n"
+            "Sen bir Acıbadem Üniversitesi asistanısın. İndekslenmiş doküman bulunamadı veya veritabanı "
+            "bağlamı yok.\n"
+            "Talimatlar:\n"
+            "- Selamlaşma veya genel eğitim konularında genel bilginle kısa yanıt ver; "
+            "kaynak olmadığını belirt.\n"
+            "- Acıbadem'e özel kesin bilgiler için https://www.acibadem.edu.tr veya OBS'e yönlendir; "
+            "uydurma.\n"
+            "- Dokümanda bilgi yoksa kendi genel bilgini kullanıyorsan bunu açıkça söyle.\n"
         )
-        ctx = "(No indexed passages — answer within the rules above.)"
+        ctx = "(İndekslenmiş pasaj yok — yukarıdaki kurallara uy.)"
 
     return (
         f"{system}\n"
@@ -59,15 +69,19 @@ def _build_rag_prompt(user_query: str, context_block: str) -> str:
 
 def ask_ai(user_query: str, *, context_limit: int | None = None, timeout_sec: int | None = None) -> str:
     """
-    RAG + Ollama. Varsayılan 3–5 belge (settings.RAG_CONTEXT_MAX_DOCUMENTS).
-    Bağlam yoksa veya DB hata verirse genel yanıt modu kullanılır; beklenmeyen hatalar yakalanır.
+    RAG + Ollama. Varsayılan bağlam sayısı ``settings.RAG_CONTEXT_MAX_DOCUMENTS`` (genelde 3).
     """
     try:
-        if timeout_sec is None:
-            timeout_sec = int(getattr(settings, "OLLAMA_REQUEST_TIMEOUT_SEC", 1800))
+        connect_sec, read_sec = _request_timeout()
+        if timeout_sec is not None:
+            read_sec = float(timeout_sec)
+            timeout_tuple: float | tuple[float, float] = (connect_sec, read_sec)
+        else:
+            timeout_tuple = (connect_sec, read_sec)
+
         if context_limit is None:
-            context_limit = int(getattr(settings, "RAG_CONTEXT_MAX_DOCUMENTS", 5))
-        context_limit = max(3, min(int(context_limit), 5))
+            context_limit = int(getattr(settings, "RAG_CONTEXT_MAX_DOCUMENTS", 3))
+        context_limit = max(1, min(int(context_limit), 8))
 
         q = (user_query or "").strip()
         if not q:
@@ -92,12 +106,18 @@ def ask_ai(user_query: str, *, context_limit: int | None = None, timeout_sec: in
 
         url = _ollama_generate_url()
         try:
-            resp = requests.post(url, json=payload, timeout=timeout_sec)
+            resp = requests.post(
+                url,
+                json=payload,
+                headers=_JSON_HEADERS,
+                timeout=timeout_tuple,
+            )
         except requests.RequestException as exc:
             logger.exception("Ollama HTTP request failed")
             return (
                 "Şu an yapay zekâ sunucusuna bağlanılamadı veya süre aşıldı. "
-                f"Lütfen tekrar deneyin. (Ollama: {exc})"
+                "Model (ör. qwen2.5:7b) CPU'da uzun sürebilir; bir süre sonra tekrar deneyin. "
+                f"(Ayrıntı: {exc})"
             )
 
         if resp.status_code >= 400:

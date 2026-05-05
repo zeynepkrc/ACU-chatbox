@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     "chat",
     "scraper",
 ]
@@ -99,8 +100,9 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Ollama: Docker Compose içinde servis adı ``ollama`` — web konteynerinden localhost kullanılmaz.
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "phi3:mini")
-# CPU'da phi3:mini uzun sürebilir; requests zaman aşımı Gunicorn worker süresinden düşük olmamalı.
-OLLAMA_REQUEST_TIMEOUT_SEC = int(os.environ.get("OLLAMA_REQUEST_TIMEOUT_SEC", "1800"))
-# RAG: Ollama'ya gönderilecek en fazla UniversityContent satırı (3–5 önerilir).
-RAG_CONTEXT_MAX_DOCUMENTS = int(os.environ.get("RAG_CONTEXT_MAX_DOCUMENTS", "5"))
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+# Qwen vb. ağır modeller CPU'da uzun sürebilir; connect kısa, okuma üst sınırlı tutulur.
+OLLAMA_REQUEST_CONNECT_SEC = int(os.environ.get("OLLAMA_REQUEST_CONNECT_SEC", "45"))
+OLLAMA_REQUEST_TIMEOUT_SEC = int(os.environ.get("OLLAMA_REQUEST_TIMEOUT_SEC", "3600"))
+# RAG: bağlamda kullanılacak UniversityContent satırı (varsayılan 3; güçlü sunucuda artırılabilir).
+RAG_CONTEXT_MAX_DOCUMENTS = int(os.environ.get("RAG_CONTEXT_MAX_DOCUMENTS", "3"))

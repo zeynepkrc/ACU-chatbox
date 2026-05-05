@@ -2,7 +2,7 @@
 # CPU-friendly Ollama: start API, wait until it answers, pull a small default model, then keep serving.
 set -e
 
-MODEL="${OLLAMA_START_MODEL:-phi3:mini}"
+MODEL="${OLLAMA_START_MODEL:-qwen2.5:7b}"
 
 echo "Starting Ollama server (CPU)..."
 ollama serve &

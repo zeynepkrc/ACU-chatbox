@@ -30,6 +30,11 @@
       if (!query) { out.textContent = "Lütfen bir soru yazın."; return; }
       out.classList.remove("err");
       out.textContent = "Yükleniyor…";
+      const longWait = window.setTimeout(() => {
+        if (out.textContent === "Yükleniyor…") {
+          out.textContent = "Model yanıt hazırlıyor (birkaç dakika sürebilir)…";
+        }
+      }, 45000);
       try {
         const r = await fetch(API_URL, {
           method: "POST",
@@ -78,6 +83,8 @@
       } catch (e) {
         out.classList.add("err");
         out.textContent = String(e);
+      } finally {
+        window.clearTimeout(longWait);
       }
     });
   </script>

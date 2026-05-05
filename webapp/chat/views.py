@@ -16,8 +16,15 @@ logger = logging.getLogger(__name__)
 
 def _json_error(status: int, code: str, message: str, **extra) -> JsonResponse:
     payload = {"ok": False, "error": message, "code": code}
-    payload.update(extra)
-    return JsonResponse(payload, status=status)
+    for key, val in extra.items():
+        if val is not None:
+            payload[key] = val
+    return JsonResponse(payload, status=status, json_dumps_params={"ensure_ascii": False})
+
+
+def _json_ok(**payload) -> JsonResponse:
+    body = {"ok": True, **payload}
+    return JsonResponse(body, status=200, json_dumps_params={"ensure_ascii": False})
 
 
 @require_http_methods(["GET"])
@@ -54,12 +61,14 @@ def chat_ui(request):
 def chat_api(request):
     """
     POST JSON. Her durumda JSON yanıt (HTML üretilmez).
+    Üretim modeli: ``settings.OLLAMA_MODEL`` (ör. ``qwen2.5:7b``), Ollama ``OLLAMA_BASE_URL``.
     """
     try:
         try:
             raw = request.body.decode("utf-8") if request.body else ""
             data = json.loads(raw) if raw.strip() else {}
         except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            logger.info("chat_api: invalid or empty JSON body")
             return _json_error(400, "invalid_json", "Geçersiz JSON gövdesi.")
 
         user_query = (
@@ -80,42 +89,43 @@ def chat_api(request):
             answer = ask_ai(user_query)
         except Exception as exc:
             logger.exception("ask_ai raised unexpectedly")
-            payload = {
-                "ok": False,
-                "error": f"Üretim hatası: {exc}",
-                "code": "generation_error",
-            }
-            if settings.DEBUG:
-                payload["traceback"] = traceback.format_exc()
-            return JsonResponse(payload, status=502)
+            return _json_error(
+                502,
+                "generation_error",
+                "Üretim sırasında bir hata oluştu. Lütfen tekrar deneyin.",
+                detail=str(exc) if settings.DEBUG else None,
+                traceback=traceback.format_exc() if settings.DEBUG else None,
+            )
 
         if not isinstance(answer, str):
             answer = str(answer)
+        answer = answer.strip()
+        if not answer:
+            logger.warning("chat_api: empty answer from ask_ai")
+            answer = (
+                "Yanıt üretilemedi. Soruyu biraz kısaltıp veya farklı kelimelerle tekrar deneyin; "
+                "model yükü (qwen2.5) nedeniyle beklemek de gerekebilir."
+            )
+
+        model_name = getattr(settings, "OLLAMA_MODEL", "")
 
         try:
             ChatHistory.objects.create(user_query=user_query, ai_response=answer)
         except Exception as exc:
             logger.exception("ChatHistory save failed")
-            payload = {
-                "ok": True,
-                "answer": answer,
-                "query": user_query,
-                "warning": "history_not_saved",
-            }
+            extra = {"warning": "history_not_saved", "model": model_name}
             if settings.DEBUG:
-                payload["history_error"] = str(exc)
-            return JsonResponse(payload, status=200)
+                extra["history_error"] = str(exc)
+            return _json_ok(answer=answer, query=user_query, **extra)
 
-        return JsonResponse({"ok": True, "answer": answer, "query": user_query})
+        return _json_ok(answer=answer, query=user_query, model=model_name)
 
     except Exception as exc:
         logger.exception("chat_api fatal failure")
-        payload = {
-            "ok": False,
-            "error": "Sunucu hatası.",
-            "code": "internal_error",
-            "detail": str(exc),
-        }
-        if settings.DEBUG:
-            payload["traceback"] = traceback.format_exc()
-        return JsonResponse(payload, status=500)
+        return _json_error(
+            500,
+            "internal_error",
+            "Sunucu hatası. Lütfen kısa bir süre sonra tekrar deneyin.",
+            detail=str(exc) if settings.DEBUG else None,
+            traceback=traceback.format_exc() if settings.DEBUG else None,
+        )
