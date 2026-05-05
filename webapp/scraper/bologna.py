@@ -1,8 +1,8 @@
 """
-OBS / Bologna public — çoklu program giriş (seed) + sınırlı link takibi (GET + BeautifulSoup).
+OBS / Bologna public — ``SEED_URLS`` içindeki her program için ayrı tarama + birleşik kuyruk (GET + BeautifulSoup).
 
-* Birden fazla ``index.aspx?...curSunit=...`` seed; keşfedilen ``obs.acibadem.edu.tr`` linkleri
-  öncelik + round-robin ile ``max_pages`` kadar işlenir.
+* Her seed farklı ``curUnit`` / ``curSunit`` ile ``index.aspx`` girişidir; erişilemeyen seed ``errors`` listesine yazılır.
+* Keşfedilen linkler öncelik sıralıdır; ``max_pages`` tüm seed’ler için global üst sınırdır; ``source_url`` tekil.
 * Başlık formatı: ``<Program> - <Sayfa türü>`` (kısa, paragraf yok).
 """
 
@@ -21,36 +21,43 @@ from scraper import utils
 
 _OBS_HOST = "obs.acibadem.edu.tr"
 
-# (Bologna public giriş URL’si, program adı). curSunit değerleri OBS’te doğrulanmalı; hatalı seed HTTP ile errors’a düşer.
-BOLOGNA_PROGRAM_SEEDS: tuple[tuple[str, str], ...] = (
+# Her satır: (``index.aspx`` girişi, başlıkta kullanılacak program adı). ``curUnit`` / ``curSunit`` çiftleri OBS’te doğrulanmıştır.
+# Psikoloji girişi: bölüm web sayfasındaki Bologna linki (curUnit=16, curSunit=6287).
+SEED_URLS: tuple[tuple[str, str], ...] = (
+    # Computer Engineering
     (
         "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=14&curSunit=6246",
         "Bilgisayar Mühendisliği",
     ),
+    # Psychology
     (
-        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=14&curSunit=6247",
-        "Moleküler Biyoloji ve Genetik",
-    ),
-    (
-        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=18&curSunit=6310",
+        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=16&curSunit=6287",
         "Psikoloji",
     ),
+    # Nursing
     (
         "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=11&curSunit=6050",
         "Hemşirelik",
     ),
+    # Nutrition and Dietetics
     (
         "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=11&curSunit=6051",
         "Beslenme ve Diyetetik",
     ),
+    # Physiotherapy and Rehabilitation
     (
         "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=11&curSunit=6052",
         "Fizyoterapi ve Rehabilitasyon",
     ),
+    # Molecular Biology and Genetics
+    (
+        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=14&curSunit=6248",
+        "Moleküler Biyoloji ve Genetik",
+    ),
 )
 
 # Geriye dönük uyumluluk (PDF canonical = ilk seed).
-BOLOGNA_CANONICAL_URL = BOLOGNA_PROGRAM_SEEDS[0][0]
+BOLOGNA_CANONICAL_URL = SEED_URLS[0][0]
 
 TITLE_MAX_LEN = 120
 
@@ -121,7 +128,7 @@ def _get_cur_sunit(url: str) -> str | None:
 
 def _cursunit_to_program_map() -> dict[str, str]:
     m: dict[str, str] = {}
-    for seed_url, pname in BOLOGNA_PROGRAM_SEEDS:
+    for seed_url, pname in SEED_URLS:
         nu = utils.normalize_obs_url(seed_url, allowed_host=_OBS_HOST)
         if not nu:
             continue
@@ -530,18 +537,22 @@ def _build_queue(
             ordered.append(nu)
 
     try:
-        r0 = utils.safe_get(session, canonical)
-        if r0.status_code != 200:
-            errors.append({"url": canonical, "error": f"HTTP {r0.status_code} (seed yüklenemedi)"})
-            return []
-        html_cache[canonical] = r0.content
+        if canonical in html_cache:
+            r0_content = html_cache[canonical]
+        else:
+            r0 = utils.safe_get(session, canonical)
+            if r0.status_code != 200:
+                errors.append({"url": canonical, "error": f"HTTP {r0.status_code} (seed yüklenemedi)"})
+                return []
+            r0_content = r0.content
+            html_cache[canonical] = r0_content
     except Exception as exc:
         errors.append({"url": canonical, "error": f"{type(exc).__name__}: {exc}"})
         return []
 
     push(canonical)
 
-    s0 = BeautifulSoup(r0.content, "html.parser")
+    s0 = BeautifulSoup(r0_content, "html.parser")
     discovered: list[str] = []
     for link in _collect_same_host_links(s0, canonical):
         discovered.append(link)
@@ -583,56 +594,87 @@ def _build_queue(
     return ordered[:max_pages]
 
 
+def _validate_seed_reachable(
+    session: requests.Session,
+    seed_url: str,
+    errors: list[Any],
+    html_cache: dict[str, bytes],
+) -> str | None:
+    """Seed için tek GET; başarısızsa ``errors`` ve ``None``."""
+    nu = utils.normalize_obs_url(seed_url, allowed_host=_OBS_HOST)
+    if not nu or not _is_allowed_obs_url(nu):
+        errors.append({"url": seed_url, "error": "Seed URL normalize / izin dışı"})
+        return None
+    if nu in html_cache:
+        return nu
+    try:
+        r = utils.safe_get(session, nu)
+        if r.status_code != 200:
+            errors.append({"url": nu, "error": f"Seed erişilemedi: HTTP {r.status_code}"})
+            return None
+        html_cache[nu] = r.content
+        return nu
+    except Exception as exc:
+        errors.append({"url": nu, "error": f"{type(exc).__name__}: {exc}"})
+        return None
+
+
 def _merge_seed_queues_round_robin(
     session: requests.Session,
     max_pages: int,
     errors: list[Any],
     html_cache: dict[str, bytes],
 ) -> list[tuple[str, str]]:
-    """Her seed için alt kuyruk; round-robin ile karıştır, toplam ``max_pages`` (url, program_etiketi)."""
+    """
+    Her seed için ayrı ``_build_queue``; round-robin ile URL alınır (aynı ``source_url`` yalnızca bir kez).
+
+    Aynı derinlikte paylaşılan genel linkler (``curSunit`` yok) ilk ekleyen seed’in program etiketiyle
+    kayda gider; ``curSunit`` taşıyan linklerde ``SEED_URLS`` eşlemesi önceliklidir.
+    """
     curs_map = _cursunit_to_program_map()
-    per_seed_cap = max(12, (max_pages + len(BOLOGNA_PROGRAM_SEEDS) - 1) // len(BOLOGNA_PROGRAM_SEEDS) + 12)
+    per_seed_cap = max(15, max_pages + 20)
 
-    seed_queues: list[list[str]] = []
-    seed_labels: list[str] = []
+    seed_queues: list[list[tuple[str, str]]] = []
 
-    for seed_url, pname in BOLOGNA_PROGRAM_SEEDS:
-        nu = utils.normalize_obs_url(seed_url, allowed_host=_OBS_HOST)
-        if not nu or not _is_allowed_obs_url(nu):
-            errors.append({"url": seed_url, "error": "Seed URL normalize / izin dışı"})
+    for si, (seed_url, pname) in enumerate(SEED_URLS):
+        if si > 0:
+            utils.delay_between_requests()
+        nu = _validate_seed_reachable(session, seed_url, errors, html_cache)
+        if not nu:
             seed_queues.append([])
-            seed_labels.append(pname)
             continue
-        sub = _build_queue(session, nu, per_seed_cap, errors, html_cache)
-        seed_queues.append(sub)
-        seed_labels.append(pname)
+        sub_urls = _build_queue(session, nu, per_seed_cap, errors, html_cache)
+        seed_queues.append([(u, pname) for u in sub_urls])
 
     merged: list[tuple[str, str]] = []
     seen: set[str] = set()
-    depth = 0
+    idxs = [0] * len(seed_queues)
+
     while len(merged) < max_pages:
         progressed = False
-        for qi, sub in enumerate(seed_queues):
+        for si, sub in enumerate(seed_queues):
             if len(merged) >= max_pages:
                 break
-            if depth < len(sub):
-                u = sub[depth]
-                if u not in seen:
-                    seen.add(u)
-                    su = _get_cur_sunit(u)
-                    label = curs_map.get(su, seed_labels[qi])
-                    merged.append((u, label))
-                    progressed = True
+            while idxs[si] < len(sub):
+                u, default_label = sub[idxs[si]]
+                idxs[si] += 1
+                if u in seen:
+                    continue
+                seen.add(u)
+                su = _get_cur_sunit(u)
+                label = curs_map.get(su, default_label) if su else default_label
+                merged.append((u, label))
+                progressed = True
+                break
         if not progressed:
             break
-        depth += 1
 
     return merged[:max_pages]
 
 
 def run(max_pages: int = 20, reset: bool = False) -> dict[str, Any]:
     """
-    Tüm program seed’lerinden round-robin ile en fazla ``max_pages`` URL işler.
+    ``SEED_URLS`` üzerinden her program için ayrı crawl başlatır; round-robin ile en fazla ``max_pages`` URL işlenir.
 
     ``reset=True``: yalnızca ``source=bologna`` kayıtlarını siler.
     """
