@@ -2,6 +2,7 @@ import json
 import logging
 
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -9,6 +10,20 @@ from .ai_services import ask_ai
 from .models import ChatHistory
 
 logger = logging.getLogger(__name__)
+
+
+def chat_ui(request):
+    recent = list(ChatHistory.objects.order_by("-created_at")[:10])
+    recent.reverse()
+    chat_messages = []
+    for row in recent:
+        chat_messages.append({"role": "user", "body": row.user_query})
+        chat_messages.append({"role": "assistant", "body": row.ai_response})
+    return render(
+        request,
+        "chat/index.html",
+        {"chat_messages": chat_messages},
+    )
 
 
 @csrf_exempt
