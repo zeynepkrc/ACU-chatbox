@@ -1,15 +1,16 @@
 """
-OBS / Bologna public — tek canonical ``index.aspx`` + program iframe (GET + BeautifulSoup).
+OBS / Bologna public — çoklu program giriş (seed) + sınırlı link takibi (GET + BeautifulSoup).
 
-Yalnızca elle ``run()`` çağrıldığında çalışır. İçerik ana sitede ``<iframe>`` ile geldiği için
-iframe URL’si ayrıca çekilir; ``UniversityContent.source_url`` her zaman PDF’teki canonical URL’dir.
+* Birden fazla ``index.aspx?...curSunit=...`` seed; keşfedilen ``obs.acibadem.edu.tr`` linkleri
+  öncelik + round-robin ile ``max_pages`` kadar işlenir.
+* Başlık formatı: ``<Program> - <Sayfa türü>`` (kısa, paragraf yok).
 """
 
 from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -20,18 +21,42 @@ from scraper import utils
 
 _OBS_HOST = "obs.acibadem.edu.tr"
 
-# PDF: Bilgisayar Mühendisliği Bologna public (canonical ``source_url``).
-BOLOGNA_CANONICAL_URL = (
-    "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx"
-    "?lang=tr&curOp=showPac&curUnit=14&curSunit=6246"
+# (Bologna public giriş URL’si, program adı). curSunit değerleri OBS’te doğrulanmalı; hatalı seed HTTP ile errors’a düşer.
+BOLOGNA_PROGRAM_SEEDS: tuple[tuple[str, str], ...] = (
+    (
+        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=14&curSunit=6246",
+        "Bilgisayar Mühendisliği",
+    ),
+    (
+        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=14&curSunit=6247",
+        "Moleküler Biyoloji ve Genetik",
+    ),
+    (
+        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=18&curSunit=6310",
+        "Psikoloji",
+    ),
+    (
+        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=11&curSunit=6050",
+        "Hemşirelik",
+    ),
+    (
+        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=11&curSunit=6051",
+        "Beslenme ve Diyetetik",
+    ),
+    (
+        "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=11&curSunit=6052",
+        "Fizyoterapi ve Rehabilitasyon",
+    ),
 )
 
-DEFAULT_PROGRAM_TITLE = "Computer Engineering Bologna Program"
+# Geriye dönük uyumluluk (PDF canonical = ilk seed).
+BOLOGNA_CANONICAL_URL = BOLOGNA_PROGRAM_SEEDS[0][0]
 
-# Bologna sayfaları kısa görünebilir veya CMS etiketleri farklıdır — ana siteden daha düşük eşik.
-_MIN_COMBINED_CHARS = 35
-_MIN_COMBINED_WORDS = 4
-_MIN_CONTENT_TEXT_CHARS = 20
+TITLE_MAX_LEN = 120
+
+# Kayıt eşiği (çok kısa/boş sayfaları yazma)
+_SAVE_MIN_CHARS = 90
+_SAVE_MIN_WORDS = 14
 
 _OBS_BLOCKED_SNIPPETS: frozenset[str] = frozenset(
     (
@@ -43,8 +68,67 @@ _OBS_BLOCKED_SNIPPETS: frozenset[str] = frozenset(
         "secure",
         "auth",
         "oauth",
+        "redirect.aspx",
+        "student.aspx",
     )
 )
+
+_PRIORITY_KEYWORDS: tuple[tuple[str, int], ...] = (
+    ("mufredat", 55),
+    ("müfredat", 55),
+    ("curriculum", 48),
+    ("listcurricula", 50),
+    ("catalog", 48),
+    ("katalog", 48),
+    ("showcoursecatalog", 52),
+    ("ders", 40),
+    ("course", 38),
+    ("showcourse", 45),
+    ("program", 35),
+    ("showprogram", 42),
+    ("showpac", 32),
+    ("akts", 45),
+    ("ects", 45),
+    ("kredi", 40),
+    ("ogrenme", 42),
+    ("çıktı", 42),
+    ("cikti", 42),
+    ("yeterlilik", 44),
+    ("learning", 40),
+    ("outcome", 40),
+    ("progabout", 28),
+    ("bologna", 8),
+    ("oibs/bologna", 6),
+)
+
+_DEPRIORITIZE_SUBSTR: tuple[str, ...] = (
+    "akademik-kadro",
+    "personel",
+    "kadro",
+    "photo",
+    "image",
+    "foto",
+)
+
+
+def _get_cur_sunit(url: str) -> str | None:
+    qs = parse_qs(urlparse(url).query)
+    vals = qs.get("curSunit") or qs.get("cursunit")
+    if not vals or not vals[0]:
+        return None
+    return str(vals[0]).strip()
+
+
+def _cursunit_to_program_map() -> dict[str, str]:
+    m: dict[str, str] = {}
+    for seed_url, pname in BOLOGNA_PROGRAM_SEEDS:
+        nu = utils.normalize_obs_url(seed_url, allowed_host=_OBS_HOST)
+        if not nu:
+            continue
+        su = _get_cur_sunit(nu)
+        if su:
+            m[su] = pname
+    return m
 
 
 def _is_allowed_obs_url(url: str) -> bool:
@@ -62,8 +146,104 @@ def _is_allowed_obs_url(url: str) -> bool:
     return True
 
 
+def _link_priority(url: str) -> int:
+    u = url.lower()
+    score = 0
+    for needle, pts in _PRIORITY_KEYWORDS:
+        if needle in u:
+            score += pts
+    for bad in _DEPRIORITIZE_SUBSTR:
+        if bad in u:
+            score -= 35
+    if u.endswith(".aspx") or ".aspx?" in u:
+        score += 4
+    return score
+
+
+def _page_kind_tr(page_url: str) -> str:
+    pl = urlparse(page_url).path.lower()
+    ql = urlparse(page_url).query.lower()
+    if "progabout" in pl:
+        return "Program Bilgileri"
+    if "progcourses" in pl:
+        return "Dersler"
+    if "progcoursematrix" in pl:
+        return "Ders Planı / Matris"
+    if "proglearnoutcomes" in pl:
+        return "Öğrenme Çıktıları"
+    if "progrecogpriorlearning" in pl:
+        return "Önceki Öğrenmenin Tanınması"
+    if "dynconpage" in pl:
+        m = re.search(r"curpageid=(\d+)", ql, re.I)
+        if m:
+            return f"Metin Sayfası ({m.group(1)})"
+        return "Bologna Metin Sayfası"
+    if "showcoursecatalog" in ql or "coursecatalog" in ql:
+        return "Ders Kataloğu"
+    if "listcurricula" in ql:
+        return "Müfredat"
+    if "showcourse" in ql and "catalog" not in ql:
+        return "Ders Bilgisi"
+    if "showprogram" in ql:
+        return "Program Yapısı"
+    if "showpac" in ql:
+        return "Program Girişi"
+    if "yeterlilik" in ql or "qualification" in ql:
+        return "Program Yeterlilikleri"
+    if "ogrenme" in ql or "learning" in ql or "cikti" in ql or "çıktı" in ql:
+        return "Öğrenme Çıktıları"
+    if "akts" in ql or "ects" in ql or "kredi" in ql:
+        return "AKTS / Kredi"
+    if "index.aspx" in pl:
+        return "Bologna Sayfası"
+    return "Bologna İçeriği"
+
+
+def _is_paragraph_like(text: str) -> bool:
+    t = text.strip()
+    if len(t) > 100:
+        return True
+    if len(t) > 55 and t.count(".") >= 2:
+        return True
+    if "\n" in t:
+        return True
+    return False
+
+
+def _short_html_heading(soup: BeautifulSoup) -> str:
+    raw = utils.extract_page_title(soup)
+    t = utils.sanitize_display_title(raw).strip()
+    if t and len(t) <= 72 and not _is_paragraph_like(t):
+        return t[:72]
+    h1 = soup.find("h1")
+    if h1:
+        t = h1.get_text(" ", strip=True)
+        t = utils.sanitize_display_title(t).strip()
+        if t and len(t) <= 72 and not _is_paragraph_like(t):
+            return t[:72]
+    return ""
+
+
+def _compose_title(program_label: str, page_url: str, soup_for_hint: BeautifulSoup) -> str:
+    prog = program_label.strip()
+    if len(prog) > 52:
+        prog = prog[:49].rstrip() + "…"
+    kind = _page_kind_tr(page_url)
+    base = f"{prog} - {kind}"
+    hint = _short_html_heading(soup_for_hint)
+    if hint and len(hint) >= 5:
+        low = hint.lower()
+        plow = program_label.lower()[:18]
+        if plow not in low and not _is_paragraph_like(hint):
+            cand = f"{prog} - {hint}"
+            if len(cand) <= TITLE_MAX_LEN:
+                return cand
+    if len(base) > TITLE_MAX_LEN:
+        return base[: TITLE_MAX_LEN - 1].rstrip() + "…"
+    return base
+
+
 def _light_strip(soup: BeautifulSoup) -> None:
-    """Sadece script/style/noscript — ``nav``/``header`` kaldırma iframe içeriğini silmesin."""
     for tag in soup.find_all(("script", "style", "noscript")):
         tag.decompose()
 
@@ -101,16 +281,15 @@ def _options_to_text(soup: BeautifulSoup) -> str:
     return "\n".join(lines).strip()
 
 
-def _div_span_dump(soup: BeautifulSoup, *, limit: int = 400) -> str:
-    """div/span iç metinleri (kısa bloklar) raw_text için — çok uzun tekrarları atla."""
+def _div_span_dump(soup: BeautifulSoup, *, limit: int = 350) -> str:
     seen: set[str] = set()
     out: list[str] = []
     for tag in soup.find_all(("div", "span"), limit=limit):
         t = tag.get_text(" ", strip=True)
         if not t or len(t) < 3:
             continue
-        if len(t) > 800:
-            t = t[:800] + "…"
+        if len(t) > 700:
+            t = t[:700] + "…"
         if t in seen:
             continue
         seen.add(t)
@@ -119,7 +298,6 @@ def _div_span_dump(soup: BeautifulSoup, *, limit: int = 400) -> str:
 
 
 def _structured_tag_walk(soup: BeautifulSoup) -> str:
-    """table / tr / td / th / option / label vb. metinleri satır satır (raw_text tamamlayıcı)."""
     lines: list[str] = []
     for tag in soup.find_all(("table", "tr", "td", "th", "option", "label", "textarea")):
         t = tag.get_text(" ", strip=True)
@@ -128,93 +306,56 @@ def _structured_tag_walk(soup: BeautifulSoup) -> str:
     return "\n".join(lines).strip()
 
 
-def _iframe_document_url(parent_soup: BeautifulSoup, base_url: str) -> str | None:
-    iframe = parent_soup.find("iframe", id="IFRAME1") or parent_soup.find("iframe")
+def _collect_same_host_links(soup: BeautifulSoup, base_url: str) -> list[str]:
+    found: list[str] = []
+    for tag in soup.find_all(("a", "area")):
+        href = (tag.get("href") or "").strip()
+        if not href or href.startswith("#") or "javascript:" in href.lower():
+            continue
+        full = urljoin(base_url, href.split("#", 1)[0])
+        nu = utils.normalize_obs_url(full, allowed_host=_OBS_HOST)
+        if nu and _is_allowed_obs_url(nu):
+            found.append(nu)
+    return found
+
+
+def _collect_onclick_aspx_links(soup: BeautifulSoup, base_url: str) -> list[str]:
+    found: list[str] = []
+    for tag in soup.find_all(True):
+        for attr in ("onclick", "onmouseenter", "data-url", "data-href"):
+            val = tag.get(attr) or ""
+            if not val or ".aspx" not in val.lower():
+                continue
+            for m in re.finditer(r"([\w./-]+\.aspx(?:\?[^'\"\s)>]+)?)", val, re.I):
+                path = m.group(1).strip()
+                if "redirect" in path.lower():
+                    continue
+                full = urljoin(base_url, path)
+                nu = utils.normalize_obs_url(full, allowed_host=_OBS_HOST)
+                if nu and _is_allowed_obs_url(nu) and "/oibs/bologna/" in nu.lower():
+                    found.append(nu)
+    return found
+
+
+def _iframe_src(soup: BeautifulSoup, page_url: str) -> str | None:
+    iframe = soup.find("iframe", id="IFRAME1") or soup.find("iframe")
     if not iframe:
         return None
     src = (iframe.get("src") or "").strip()
     if not src:
         return None
-    return urljoin(base_url, src)
+    return urljoin(page_url, src)
 
 
-def _resolve_program_title(soup: BeautifulSoup) -> str:
-    raw = utils.sanitize_display_title(utils.extract_page_title(soup))
-    if len(raw.strip()) >= 3:
-        return raw[:512]
-    h1 = soup.find("h1")
-    if h1:
-        t = h1.get_text(" ", strip=True)
-        if len(t.strip()) >= 3:
-            return utils.sanitize_display_title(t)[:512]
-    for tag in soup.find_all(["h2", "h3"]):
-        t = tag.get_text(" ", strip=True)
-        if len(t.strip()) >= 10:
-            return t[:512]
-    plain = soup.get_text("\n", strip=True)
-    for line in plain.splitlines():
-        line = line.strip()
-        if 15 <= len(line) <= 240:
-            return line[:512]
-    return ""
-
-
-def _ingest_canonical_page(
-    session: requests.Session,
-    canonical: str,
-    errors: list[Any],
-) -> tuple[str, str, str] | None:
-    resp = utils.safe_get(session, canonical)
-    if resp.status_code != 200:
-        errors.append({"url": canonical, "error": f"HTTP {resp.status_code}: beklenen 200 değil"})
-        return None
-
-    ctype = (resp.headers.get("Content-Type") or "").lower()
-    if "text/html" not in ctype and "application/xhtml+xml" not in ctype:
-        errors.append({"url": canonical, "error": f"Beklenmeyen Content-Type: {ctype!r}"})
-        return None
-
-    parent_html = resp.content
-    parent_soup = BeautifulSoup(parent_html, "html.parser")
-    parent_plain = _plain_after_light_strip(parent_html)
-
-    child_url = _iframe_document_url(parent_soup, canonical)
-    child_plain = ""
-    child_tables = ""
-    child_options = ""
-    child_struct = ""
-    child_div_span = ""
-    title = ""
-
-    if child_url and _is_allowed_obs_url(child_url):
-        utils.delay_between_requests()
-        try:
-            r2 = utils.safe_get(session, child_url)
-            if r2.status_code != 200:
-                errors.append({"url": child_url, "error": f"iframe GET HTTP {r2.status_code}"})
-            else:
-                child_html = r2.content
-                child_soup = BeautifulSoup(child_html, "html.parser")
-                title = _resolve_program_title(child_soup)
-                child_plain = _plain_after_light_strip(child_html)
-                child_tables = _tables_to_text(BeautifulSoup(child_html, "html.parser"))
-                child_options = _options_to_text(child_soup)
-                child_struct = _structured_tag_walk(child_soup)
-                child_div_span = _div_span_dump(child_soup)
-        except Exception as exc:
-            errors.append({"url": child_url, "error": f"{type(exc).__name__}: {exc}"})
-    else:
-        if not child_url:
-            errors.append({"url": canonical, "error": "iframe src bulunamadı (IFRAME1)"})
-        else:
-            errors.append({"url": canonical, "error": f"iframe URL izin listesinde değil: {child_url}"})
-
-    if not (title or "").strip():
-        title = _resolve_program_title(parent_soup)
-    if not (title or "").strip() or len((title or "").strip()) < 3:
-        title = DEFAULT_PROGRAM_TITLE
-
-    combined_for_quality = "\n\n".join(
+def _combined_quality_text(
+    parent_plain: str,
+    child_plain: str,
+    child_tables: str,
+    child_options: str,
+    child_struct: str,
+    child_div_span: str,
+) -> tuple[str, int]:
+    combined = "\n\n".join(
         p
         for p in (
             parent_plain,
@@ -226,68 +367,274 @@ def _ingest_canonical_page(
         )
         if p
     ).strip()
+    words = len(re.findall(r"\w+", combined, flags=re.UNICODE))
+    return combined, words
 
-    if len(combined_for_quality) < _MIN_COMBINED_CHARS:
+
+def _build_raw_text(
+    source_url: str,
+    child_url: str | None,
+    parent_plain: str,
+    child_plain: str,
+    child_tables: str,
+    child_options: str,
+    child_struct: str,
+    child_div_span: str,
+) -> str:
+    raw_parts: list[str] = [f"Kaynak URL (source_url): {source_url}"]
+    if child_url:
+        raw_parts.append(f"İçerik iframe / alt sayfa: {child_url}")
+    if parent_plain:
+        raw_parts.append("---\nKabuk / menü metni\n---\n" + parent_plain.strip())
+    if child_tables:
+        raw_parts.append("---\nTablolar\n---\n" + child_tables)
+    if child_options:
+        raw_parts.append("---\nSelect / option\n---\n" + child_options)
+    if child_struct:
+        raw_parts.append("---\nYapısal etiket metni\n---\n" + child_struct)
+    if child_div_span:
+        raw_parts.append("---\nDiv / span özetleri\n---\n" + child_div_span)
+    if child_plain:
+        raw_parts.append("---\nDüz metin gövde\n---\n" + child_plain.strip())
+    return "\n\n".join(raw_parts).strip()
+
+
+def _ingest_single_or_iframe_shell(
+    session: requests.Session,
+    page_url: str,
+    program_label: str,
+    errors: list[Any],
+    *,
+    html_cache: dict[str, bytes],
+) -> tuple[str, str, str] | None:
+    nu = utils.normalize_obs_url(page_url, allowed_host=_OBS_HOST)
+    if not nu or not _is_allowed_obs_url(nu):
+        errors.append({"url": page_url, "error": "URL normalize / izin dışı"})
+        return None
+
+    if nu in html_cache:
+        html = html_cache[nu]
+    else:
+        resp = utils.safe_get(session, nu)
+        if resp.status_code != 200:
+            errors.append({"url": nu, "error": f"HTTP {resp.status_code}"})
+            return None
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+        if "text/html" not in ctype and "application/xhtml+xml" not in ctype:
+            errors.append({"url": nu, "error": f"HTML değil: {ctype!r}"})
+            return None
+        html = resp.content
+        html_cache[nu] = html
+
+    soup = BeautifulSoup(html, "html.parser")
+    parent_plain = _plain_after_light_strip(html)
+
+    child_url = _iframe_src(soup, nu)
+    child_plain = ""
+    child_tables = ""
+    child_options = ""
+    child_struct = ""
+    child_div_span = ""
+    soup_for_title = soup
+
+    child_norm = utils.normalize_obs_url(child_url, allowed_host=_OBS_HOST) if child_url else None
+    if (
+        child_norm
+        and _is_allowed_obs_url(child_norm)
+        and child_norm != nu
+    ):
+        if child_norm not in html_cache:
+            utils.delay_between_requests()
+        try:
+            if child_norm in html_cache:
+                chtml = html_cache[child_norm]
+            else:
+                r2 = utils.safe_get(session, child_norm)
+                if r2.status_code != 200:
+                    errors.append({"url": child_norm, "error": f"iframe HTTP {r2.status_code}"})
+                    chtml = b""
+                else:
+                    chtml = r2.content
+                    html_cache[child_norm] = chtml
+            if chtml:
+                csoup = BeautifulSoup(chtml, "html.parser")
+                soup_for_title = csoup
+                child_plain = _plain_after_light_strip(chtml)
+                child_tables = _tables_to_text(BeautifulSoup(chtml, "html.parser"))
+                child_options = _options_to_text(csoup)
+                child_struct = _structured_tag_walk(csoup)
+                child_div_span = _div_span_dump(csoup)
+        except Exception as exc:
+            errors.append({"url": child_norm, "error": f"{type(exc).__name__}: {exc}"})
+    else:
+        soup_for_title = soup
+
+    su = _get_cur_sunit(nu) or _get_cur_sunit(child_norm or "")
+    curs_map = _cursunit_to_program_map()
+    effective_program = curs_map.get(su, program_label) if su else program_label
+
+    title = _compose_title(effective_program, nu, soup_for_title)
+    if len(title) > TITLE_MAX_LEN:
+        title = title[: TITLE_MAX_LEN - 1].rstrip() + "…"
+
+    combined, words = _combined_quality_text(
+        parent_plain, child_plain, child_tables, child_options, child_struct, child_div_span
+    )
+    if len(combined) < _SAVE_MIN_CHARS or words < _SAVE_MIN_WORDS:
         errors.append(
             {
-                "url": canonical,
-                "error": (
-                    f"Birleşik metin kısa ({len(combined_for_quality)} karakter < {_MIN_COMBINED_CHARS}); "
-                    "yine de kayda izin veriliyor olabilir"
-                ),
+                "url": nu,
+                "error": f"İçerik kısa veya yetersiz ({len(combined)} char, {words} kelime)",
             }
-        )
-    words = len(re.findall(r"\w+", combined_for_quality, flags=re.UNICODE))
-    if words < _MIN_COMBINED_WORDS and combined_for_quality:
-        errors.append(
-            {
-                "url": canonical,
-                "error": f"Kelime sayısı düşük ({words} < {_MIN_COMBINED_WORDS})",
-            }
-        )
-
-    # Çok kısa / boş: gerçekten kaydedilecek bir şey yoksa çık.
-    if len(combined_for_quality.strip()) < 12 or words < 2:
-        errors.append(
-            {"url": canonical, "error": "Yetersiz içerik (iframe ve kabuk metni neredeyse boş)"}
         )
         return None
 
-    content_text = (child_plain or combined_for_quality).strip()
+    content_text = (child_plain or combined).strip()
     if parent_plain and len(parent_plain) > 40:
-        header = "Bologna menü (index.aspx):\n" + parent_plain[:2000].strip()
-        content_text = header + "\n\n---\n\nProgram / içerik:\n" + content_text
+        content_text = (
+            "Bologna menü / kabuk:\n"
+            + parent_plain[:2200].strip()
+            + "\n\n---\n\nProgram / detay:\n"
+            + content_text
+        )
 
-    if len(content_text) < _MIN_CONTENT_TEXT_CHARS:
-        content_text = combined_for_quality or content_text
+    raw_text = _build_raw_text(
+        nu,
+        child_norm if child_norm and child_norm != nu else None,
+        parent_plain,
+        child_plain,
+        child_tables,
+        child_options,
+        child_struct,
+        child_div_span,
+    )
 
-    raw_parts: list[str] = [
-        f"Canonical URL (source_url): {canonical}",
-    ]
-    if child_url:
-        raw_parts.append(f"Program iframe URL: {child_url}")
-    if parent_plain:
-        raw_parts.append("---\nKabuk / menü (index.aspx, hafif strip)\n---\n" + parent_plain.strip())
-    if child_tables:
-        raw_parts.append("---\nTablolar (iframe)\n---\n" + child_tables)
-    if child_options:
-        raw_parts.append("---\nSelect / option (iframe)\n---\n" + child_options)
-    if child_struct:
-        raw_parts.append("---\nYapısal etiket metni table/tr/td/th/option/label (iframe)\n---\n" + child_struct)
-    if child_div_span:
-        raw_parts.append("---\nDiv / span metin örnekleri (iframe)\n---\n" + child_div_span)
-    if child_plain:
-        raw_parts.append("---\nTam düz metin (iframe, hafif strip)\n---\n" + child_plain.strip())
-    raw_text = "\n\n".join(raw_parts).strip()
+    return title[:TITLE_MAX_LEN], content_text, raw_text
 
-    return title[:512], content_text, raw_text
+
+def _build_queue(
+    session: requests.Session,
+    canonical: str,
+    max_pages: int,
+    errors: list[Any],
+    html_cache: dict[str, bytes],
+) -> list[str]:
+    """Tek seed: başarılı canonical yükleme sonrası iframe + keşfedilen linkler (öncelik sıralı)."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def push(u: str) -> None:
+        nu = utils.normalize_obs_url(u, allowed_host=_OBS_HOST)
+        if nu and _is_allowed_obs_url(nu) and nu not in seen:
+            seen.add(nu)
+            ordered.append(nu)
+
+    try:
+        r0 = utils.safe_get(session, canonical)
+        if r0.status_code != 200:
+            errors.append({"url": canonical, "error": f"HTTP {r0.status_code} (seed yüklenemedi)"})
+            return []
+        html_cache[canonical] = r0.content
+    except Exception as exc:
+        errors.append({"url": canonical, "error": f"{type(exc).__name__}: {exc}"})
+        return []
+
+    push(canonical)
+
+    s0 = BeautifulSoup(r0.content, "html.parser")
+    discovered: list[str] = []
+    for link in _collect_same_host_links(s0, canonical):
+        discovered.append(link)
+    for link in _collect_onclick_aspx_links(s0, canonical):
+        discovered.append(link)
+
+    child = _iframe_src(s0, canonical)
+    child_nu = utils.normalize_obs_url(child, allowed_host=_OBS_HOST) if child else None
+    if child_nu and _is_allowed_obs_url(child_nu) and child_nu != canonical:
+        if child_nu not in html_cache:
+            utils.delay_between_requests()
+        try:
+            if child_nu not in html_cache:
+                r1 = utils.safe_get(session, child_nu)
+                if r1.status_code == 200:
+                    html_cache[child_nu] = r1.content
+                else:
+                    errors.append({"url": child_nu, "error": f"program sayfası HTTP {r1.status_code}"})
+            if child_nu in html_cache:
+                push(child_nu)
+                s1 = BeautifulSoup(html_cache[child_nu], "html.parser")
+                for link in _collect_same_host_links(s1, child_nu):
+                    discovered.append(link)
+                for link in _collect_onclick_aspx_links(s1, child_nu):
+                    discovered.append(link)
+        except Exception as exc:
+            errors.append({"url": child_nu or "", "error": f"{type(exc).__name__}: {exc}"})
+
+    extra_candidates = sorted(
+        {u for u in discovered if u not in seen},
+        key=lambda u: (-_link_priority(u), u),
+    )
+
+    for u in extra_candidates:
+        if len(ordered) >= max_pages:
+            break
+        push(u)
+
+    return ordered[:max_pages]
+
+
+def _merge_seed_queues_round_robin(
+    session: requests.Session,
+    max_pages: int,
+    errors: list[Any],
+    html_cache: dict[str, bytes],
+) -> list[tuple[str, str]]:
+    """Her seed için alt kuyruk; round-robin ile karıştır, toplam ``max_pages`` (url, program_etiketi)."""
+    curs_map = _cursunit_to_program_map()
+    per_seed_cap = max(12, (max_pages + len(BOLOGNA_PROGRAM_SEEDS) - 1) // len(BOLOGNA_PROGRAM_SEEDS) + 12)
+
+    seed_queues: list[list[str]] = []
+    seed_labels: list[str] = []
+
+    for seed_url, pname in BOLOGNA_PROGRAM_SEEDS:
+        nu = utils.normalize_obs_url(seed_url, allowed_host=_OBS_HOST)
+        if not nu or not _is_allowed_obs_url(nu):
+            errors.append({"url": seed_url, "error": "Seed URL normalize / izin dışı"})
+            seed_queues.append([])
+            seed_labels.append(pname)
+            continue
+        sub = _build_queue(session, nu, per_seed_cap, errors, html_cache)
+        seed_queues.append(sub)
+        seed_labels.append(pname)
+
+    merged: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    depth = 0
+    while len(merged) < max_pages:
+        progressed = False
+        for qi, sub in enumerate(seed_queues):
+            if len(merged) >= max_pages:
+                break
+            if depth < len(sub):
+                u = sub[depth]
+                if u not in seen:
+                    seen.add(u)
+                    su = _get_cur_sunit(u)
+                    label = curs_map.get(su, seed_labels[qi])
+                    merged.append((u, label))
+                    progressed = True
+        if not progressed:
+            break
+        depth += 1
+
+    return merged[:max_pages]
 
 
 def run(max_pages: int = 20, reset: bool = False) -> dict[str, Any]:
     """
-    Tek canonical Bologna URL işlenir; ``max_pages`` API uyumluluğu için korunur (≥1).
+    Tüm program seed’lerinden round-robin ile en fazla ``max_pages`` URL işler.
 
-    ``reset=True``: yalnızca ``source=bologna`` satırlarını siler.
+    ``reset=True``: yalnızca ``source=bologna`` kayıtlarını siler.
     """
     if max_pages < 1:
         raise ValueError("max_pages must be >= 1")
@@ -298,35 +645,41 @@ def run(max_pages: int = 20, reset: bool = False) -> dict[str, Any]:
         with transaction.atomic():
             UniversityContent.objects.filter(source=UniversityContent.Source.BOLOGNA).delete()
 
-    canonical = utils.normalize_obs_url(BOLOGNA_CANONICAL_URL, allowed_host=_OBS_HOST)
-    if not canonical or not _is_allowed_obs_url(canonical):
-        stats["errors"].append({"url": BOLOGNA_CANONICAL_URL, "error": "Canonical URL normalize / izin hatası"})
-        return stats
-
     session = requests.Session()
     session.headers.update(utils.DEFAULT_HEADERS)
 
-    # Tek hedef sayfa; ``urls`` işlenen canonical girişi (max_pages bütçesi ile aynı sayıda raporlanabilir).
-    stats["urls"] = 1
-    try:
-        bundle = _ingest_canonical_page(session, canonical, stats["errors"])
-        if bundle is None:
-            stats["skipped"] = 1
-            return stats
-        title, content_text, raw_text = bundle
-        with transaction.atomic():
-            UniversityContent.objects.update_or_create(
-                source_url=canonical,
-                defaults={
-                    "source": UniversityContent.Source.BOLOGNA,
-                    "title": title[:512],
-                    "content_text": content_text,
-                    "raw_text": raw_text,
-                },
+    html_cache: dict[str, bytes] = {}
+    queue = _merge_seed_queues_round_robin(session, max_pages, stats["errors"], html_cache)
+
+    for idx, (page_url, program_label) in enumerate(queue):
+        nu = utils.normalize_obs_url(page_url, allowed_host=_OBS_HOST)
+        if not nu:
+            stats["skipped"] += 1
+            continue
+        if idx > 0:
+            utils.delay_between_requests()
+        stats["urls"] += 1
+        try:
+            bundle = _ingest_single_or_iframe_shell(
+                session, nu, program_label, stats["errors"], html_cache=html_cache
             )
-        stats["saved"] = 1
-    except Exception as exc:
-        stats["errors"].append({"url": canonical, "error": f"{type(exc).__name__}: {exc}"})
-        stats["skipped"] = 1
+            if bundle is None:
+                stats["skipped"] += 1
+                continue
+            title, content_text, raw_text = bundle
+            with transaction.atomic():
+                UniversityContent.objects.update_or_create(
+                    source_url=nu,
+                    defaults={
+                        "source": UniversityContent.Source.BOLOGNA,
+                        "title": title[: min(TITLE_MAX_LEN, 512)],
+                        "content_text": content_text,
+                        "raw_text": raw_text,
+                    },
+                )
+            stats["saved"] += 1
+        except Exception as exc:
+            stats["errors"].append({"url": nu, "error": f"{type(exc).__name__}: {exc}"})
+            stats["skipped"] += 1
 
     return stats
