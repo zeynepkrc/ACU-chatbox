@@ -35,6 +35,20 @@ def test_chat(request):
         return HttpResponse(html, status=200, content_type="text/html; charset=utf-8")
 
 
+def chat_ui(request):
+    recent = list(ChatHistory.objects.order_by("-created_at")[:10])
+    recent.reverse()
+    chat_messages = []
+    for row in recent:
+        chat_messages.append({"role": "user", "body": row.user_query})
+        chat_messages.append({"role": "assistant", "body": row.ai_response})
+    return render(
+        request,
+        "chat/index.html",
+        {"chat_messages": chat_messages},
+    )
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def chat_api(request):

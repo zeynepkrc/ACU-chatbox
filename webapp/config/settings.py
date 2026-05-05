@@ -80,8 +80,13 @@ TIME_ZONE = "Europe/Istanbul"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
+# Gunicorn statik dosya sunmaz; WhiteNoise ile /static/ altında servis edilir.
+# DEBUG açıkken collectstatic gerekmeden STATICFILES_DIRS + app static kullanılır.
+WHITENOISE_USE_FINDERS = DEBUG
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

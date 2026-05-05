@@ -1,0 +1,148 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#003366">
+  <title>ACU AI Asistanı</title>
+  <link rel="stylesheet" href="{% static 'chat/style.css' %}">
+  <style>
+    /* Yükleme balonu — üç nokta (ADIM 2, yalnız bu şablonda) */
+    .message__body--typing {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin: 0;
+    }
+    .typing-label {
+      font-size: 0.9375rem;
+      color: var(--acu-text-muted, #5c6370);
+    }
+    .typing-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.1rem 0;
+    }
+    .typing-dots span {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--acu-text-muted, #5c6370);
+      opacity: 0.35;
+      animation: acu-typing-dot 1.2s ease-in-out infinite;
+    }
+    .typing-dots span:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    .typing-dots span:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+    @keyframes acu-typing-dot {
+      0%, 80%, 100% { opacity: 0.35; transform: scale(0.92); }
+      40% { opacity: 1; transform: scale(1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .typing-dots span { animation: none; opacity: 0.75; }
+    }
+    .messages__welcome {
+      text-align: center;
+      padding: 2rem 1rem;
+      margin: auto 0;
+      font-size: clamp(1rem, 3vw, 1.15rem);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--acu-navy, #003366);
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header" role="banner">
+      <div class="header__logo" aria-hidden="true">
+        <!-- Kurumsal logo yer tutucu: üretimde gerçek ACU logosu ile değiştirin -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">
+          <rect width="48" height="48" rx="10" fill="rgba(255,255,255,0.2)"/>
+          <text x="24" y="32" text-anchor="middle" fill="#fff" font-family="system-ui,sans-serif" font-size="14" font-weight="700">ACU</text>
+        </svg>
+      </div>
+      <div class="header__text">
+        <h1 class="header__title">ACU AI Asistanı</h1>
+        <p class="header__subtitle">Acıbadem Üniversitesi yapay zekâ destekli yardımcı asistan</p>
+      </div>
+    </header>
+
+    <main class="main" role="main">
+      <div class="messages" id="messages" tabindex="-1" aria-label="Sohbet mesajları">
+        {% if not chat_messages %}
+        <div class="messages__welcome" role="status">
+          ACU AI CHATBOT'A HOŞGELDİNİZ
+        </div>
+        {% else %}
+        {% for msg in chat_messages %}
+        <article class="message message--{% if msg.role == 'user' %}user{% else %}assistant{% endif %}">
+          <div class="message__meta">{% if msg.role == 'user' %}Siz{% else %}Asistan{% endif %}</div>
+          <p class="message__body">{{ msg.body }}</p>
+        </article>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </main>
+
+    <footer class="composer" role="contentinfo">
+      <form class="composer__form" id="chat-form" autocomplete="off">
+        <div class="composer__field">
+          <label class="visually-hidden" for="message-input">Mesajınız</label>
+          <textarea
+            id="message-input"
+            class="composer__input"
+            name="message"
+            rows="1"
+            placeholder="Mesajınızı yazın…"
+            required
+            maxlength="8000"
+            aria-label="Mesajınızı yazın"
+          ></textarea>
+        </div>
+        <button type="submit" class="composer__submit" id="send-btn">Gönder</button>
+      </form>
+    </footer>
+  </div>
+
+  <script src="{% static 'chat/chat.js' %}" defer></script>
+  <script>
+    (function () {
+      function scrollMessagesToBottom() {
+        var el = document.getElementById("messages");
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", scrollMessagesToBottom);
+      } else {
+        scrollMessagesToBottom();
+      }
+      var form = document.getElementById("chat-form");
+      var input = document.getElementById("message-input");
+      if (form && input) {
+        form.addEventListener(
+          "submit",
+          function () {
+            if ((input.value || "").trim()) {
+              var welcome = document.querySelector(".messages__welcome");
+              if (welcome) {
+                welcome.remove();
+              }
+            }
+          },
+          true
+        );
+      }
+    })();
+  </script>
+</body>
+</html>

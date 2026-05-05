@@ -1,0 +1,302 @@
+/* ACU AI Asistanı — kurumsal sohbet arayüzü */
+
+:root {
+  --acu-navy: #003366;
+  --acu-white: #ffffff;
+  --acu-gray-bg: #f4f4f4;
+  --acu-gray-bubble: #e8eaed;
+  --acu-user-bubble: #c5d9f0;
+  --acu-user-bubble-border: #8eb4d9;
+  --acu-text: #1a1a1a;
+  --acu-text-muted: #5c6370;
+  --acu-header-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
+  --radius-bubble: 1rem;
+  --radius-composer: 0.75rem;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+html {
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--acu-text);
+  background: var(--acu-gray-bg);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* ——— Header ——— */
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.75rem 1rem;
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+  background: var(--acu-navy);
+  color: var(--acu-white);
+  box-shadow: var(--acu-header-shadow);
+}
+
+.header__logo {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.header__logo img,
+.header__logo svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.header__text {
+  min-width: 0;
+}
+
+.header__title {
+  margin: 0;
+  font-size: clamp(1.05rem, 2.5vw, 1.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.header__subtitle {
+  margin: 0.15rem 0 0;
+  font-size: 0.8125rem;
+  opacity: 0.88;
+  font-weight: 400;
+}
+
+/* ——— Mesaj alanı ——— */
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0.75rem;
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem 0.25rem;
+  padding-bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.messages:focus {
+  outline: none;
+}
+
+.message {
+  max-width: min(85%, 34rem);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-bubble);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.message--assistant {
+  align-self: flex-start;
+  background: var(--acu-gray-bubble);
+  color: var(--acu-text);
+  border-bottom-left-radius: 0.35rem;
+  box-shadow: 0 1px 2px rgba(0, 51, 102, 0.06);
+}
+
+.message--user {
+  align-self: flex-end;
+  background: var(--acu-user-bubble);
+  color: var(--acu-navy);
+  border: 1px solid var(--acu-user-bubble-border);
+  border-bottom-right-radius: 0.35rem;
+  box-shadow: 0 1px 2px rgba(0, 51, 102, 0.08);
+}
+
+.message__meta {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: var(--acu-text-muted);
+}
+
+.message--user .message__meta {
+  color: rgba(0, 51, 102, 0.65);
+  text-align: right;
+}
+
+.message__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.message--loading .message__body {
+  opacity: 0.75;
+}
+
+.message--error {
+  background: #fde8e8;
+  border: 1px solid #f0b4b4;
+  color: #7a1f1f;
+}
+
+.message--error .message__meta {
+  color: #9a3a3a;
+}
+
+/* ——— Composer (sabit alt alan) ——— */
+.composer {
+  flex-shrink: 0;
+  padding: 0.75rem 1rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+  background: var(--acu-white);
+  border-top: 1px solid rgba(0, 51, 102, 0.12);
+  box-shadow: 0 -4px 20px rgba(0, 51, 102, 0.06);
+}
+
+.composer__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  max-width: 56rem;
+  margin: 0 auto;
+}
+
+.composer__field {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer__input {
+  width: 100%;
+  min-height: 2.75rem;
+  max-height: 8rem;
+  resize: none;
+  padding: 0.65rem 0.9rem;
+  font: inherit;
+  line-height: 1.45;
+  color: var(--acu-text);
+  background: var(--acu-gray-bg);
+  border: 1px solid rgba(0, 51, 102, 0.18);
+  border-radius: var(--radius-composer);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.composer__input::placeholder {
+  color: var(--acu-text-muted);
+}
+
+.composer__input:hover {
+  border-color: rgba(0, 51, 102, 0.28);
+}
+
+.composer__input:focus {
+  outline: none;
+  border-color: var(--acu-navy);
+  box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.15);
+  background: var(--acu-white);
+}
+
+.composer__submit {
+  flex-shrink: 0;
+  min-height: 2.75rem;
+  padding: 0 1.15rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--acu-white);
+  background: var(--acu-navy);
+  border: none;
+  border-radius: var(--radius-composer);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.composer__submit:hover {
+  background: #002952;
+}
+
+.composer__submit:active {
+  transform: scale(0.98);
+}
+
+.composer__submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 480px) {
+  .composer__form {
+    flex-wrap: wrap;
+  }
+
+  .composer__submit {
+    width: 100%;
+  }
+
+  .message {
+    max-width: 92%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer__submit {
+    transition: none;
+  }
+}
