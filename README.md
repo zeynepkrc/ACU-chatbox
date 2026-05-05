@@ -14,7 +14,7 @@ From the repository root:
 docker compose up --build
 ```
 
-- **Web:** http://localhost:8000 (host and container both use port 8000). Admin: `/admin/` after you create a superuser.
+- **Web:** http://localhost:8000 by default (`DJANGO_PORT`; maps to Gunicorn on 8000 inside the container). Admin: `/admin/` after you create a superuser.
 - **Database:** PostgreSQL is reachable from the host on port `5433` by default (`POSTGRES_PUBLISH_PORT`; inside Compose the hostname is `db` on port `5432`).
 
 On first start the `web` service runs migrations, then starts Gunicorn.
@@ -29,7 +29,7 @@ Copy `.env.example` to `.env` and adjust values. Compose substitutes variables f
 docker compose exec web python manage.py createsuperuser
 ```
 
-Open the admin UI at http://localhost:8000/admin/ (or your host if you override networking).
+Use the same host port as in `DJANGO_PORT` (default `8001`) when opening the admin UI.
 
 ## Project layout
 
