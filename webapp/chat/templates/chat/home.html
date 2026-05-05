@@ -4,21 +4,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#1a2f4a">
   <title>ACU.knows</title>
   <link rel="stylesheet" href="{% static 'chat/css/style.css' %}">
 </head>
 <body>
   <div class="shell">
     <aside class="sidebar" aria-label="Kenar çubuğu">
-      <div class="sidebar__brand">
-        <span class="sidebar__logo" aria-hidden="true">A.k</span>
-      </div>
       <button type="button" class="sidebar__newchat" id="new-chat-btn">
-        + Yeni sohbet
+        Yeni Sohbet
       </button>
       <div class="sidebar__block">
-        <h2 class="sidebar__label">Recents</h2>
+        <h2 class="sidebar__label">Geçmiş Sohbetler</h2>
         <ul class="sidebar__list" id="chat-history-list" role="list"></ul>
         <p class="sidebar__empty" id="sidebar-empty-hint">Henüz kayıtlı sohbet yok.</p>
       </div>
@@ -26,34 +23,47 @@
 
     <div class="main">
       <header class="hero">
-        <h1 class="hero__title">ACU.knows AI – HOŞGELDİNİZ</h1>
+        <p class="hero__eyebrow">Acıbadem Üniversitesi</p>
+        <h1 class="hero__title">ACU.knows</h1>
       </header>
+
+      <section class="welcome-panel" id="welcome-panel" aria-label="Karşılama ve hızlı sorular">
+        <div class="welcome-panel__inner">
+          <p class="welcome-panel__intro">
+            Kurumsal bilgi asistanına hoş geldiniz. Aşağıdaki önerilerden birini seçebilir veya kendi sorunuzu yazarak devam edebilirsiniz.
+          </p>
+          <div class="quick-actions" role="list">
+            <button type="button" class="quick-action" role="listitem"
+              data-question="Acıbadem Üniversitesinde Kaç Tane Lisans Programı Vardır?">
+              Acıbadem Üniversitesinde Kaç Tane Lisans Programı Vardır?
+            </button>
+            <button type="button" class="quick-action" role="listitem"
+              data-question="Acıbadem Üniversitesi Nerededir?">
+              Acıbadem Üniversitesi Nerededir?
+            </button>
+            <button type="button" class="quick-action" role="listitem"
+              data-question="Acıbadem Üniversitesinin Tarihçesi nedir?">
+              Acıbadem Üniversitesi Bilgisayar Mühendisliği Hakkında Bilgi Alabilir Miyim?
+            </button>
+            <button type="button" class="quick-action" role="listitem"
+              data-question="Acıbadem Üniversitesinde Sadece sağlık bölümleri mi vardır?">
+              Acıbadem Üniversitesinde Sadece sağlık bölümleri mi vardır?
+            </button>
+          </div>
+        </div>
+      </section>
 
       <div class="chat-scroll" id="chat-scroll">
         <div class="chat-container">
           <div
-            class="messages{% if not chat_messages %} messages--empty{% endif %}"
+            class="messages messages--empty"
             id="messages"
             tabindex="-1"
             aria-label="Sohbet mesajları"
-          >
-            {% if not chat_messages %}
-            <div class="messages__welcome" role="status">
-              Aşağıdan mesajınızı yazarak sohbete başlayın.
-            </div>
-            {% else %}
-            {% for msg in chat_messages %}
-            <article class="message message--{% if msg.role == 'user' %}user{% else %}assistant{% endif %}">
-              <div class="message__meta">{% if msg.role == 'user' %}Siz{% else %}Asistan{% endif %}</div>
-              <p class="message__body">{{ msg.body }}</p>
-            </article>
-            {% endfor %}
-            {% endif %}
-          </div>
+          ></div>
         </div>
       </div>
 
-      {# Sabit alt bölüm: flex ile daima görünür; chat-scroll ile çakışmaz #}
       <div class="main-bottom">
         <footer class="composer" role="contentinfo">
           <div class="composer__wrap">
@@ -81,7 +91,6 @@
     </div>
   </div>
 
-  {# Cookie preferences modal #}
   <div class="cookie-modal" id="cookie-modal" hidden aria-hidden="true">
     <div class="cookie-modal__backdrop" id="cookie-modal-backdrop" tabindex="-1"></div>
     <div
@@ -166,13 +175,7 @@
     </div>
   </div>
 
-  <script type="application/json" id="chat-history-data">
-[
-  {"id": "p1", "title": "Akademik takvim"},
-  {"id": "p2", "title": "Kayıt yenileme"},
-  {"id": "p3", "title": "Kampüs iletişim"}
-]
-  </script>
+  {{ chat_sidebar_items|json_script:"chat-history-data" }}
 
   <script src="{% static 'chat/chat.js' %}" defer></script>
   <script>

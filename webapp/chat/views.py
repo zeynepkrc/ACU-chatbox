@@ -43,16 +43,20 @@ def test_chat(request):
 
 
 def chat_ui(request):
-    recent = list(ChatHistory.objects.order_by("-created_at")[:10])
-    recent.reverse()
-    chat_messages = []
-    for row in recent:
-        chat_messages.append({"role": "user", "body": row.user_query})
-        chat_messages.append({"role": "assistant", "body": row.ai_response})
+    """
+    Ana sohbet arayüzü: her açılışta mesaj alanı boş (geçmiş yalnızca kenar çubuğunda listelenir).
+    """
+    sidebar_items: list[dict[str, int | str]] = []
+    for row in ChatHistory.objects.order_by("-created_at")[:50]:
+        q = (row.user_query or "").strip().replace("\n", " ")
+        title = (q[:72] + "…") if len(q) > 72 else q
+        if not title:
+            title = "Sohbet"
+        sidebar_items.append({"id": row.pk, "title": title})
     return render(
         request,
         "chat/index.html",
-        {"chat_messages": chat_messages},
+        {"chat_sidebar_items": sidebar_items},
     )
 
 

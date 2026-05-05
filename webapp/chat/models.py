@@ -40,6 +40,26 @@ class UniversityContent(models.Model):
         return f"{self.source} — {self.title or self.source_url[:80]}"
 
 
+class ManualResponse(models.Model):
+    """Yönetici tanımlı sabit cevap; soru metni kalıpla eşleşirse LLM çağrılmaz."""
+
+    question_pattern = models.CharField(
+        max_length=512,
+        help_text="Kullanıcı sorusunda aranacak anahtar kelime veya ifade (büyük/küçük harf duyarsız, alt dize).",
+    )
+    manual_answer = models.TextField(help_text="Eşleşmede döndürülecek kesin cevap.")
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self) -> str:
+        p = (self.question_pattern or "").strip()
+        return p[:80] + ("…" if len(p) > 80 else "")
+
+
 class ChatHistory(models.Model):
     """User question and AI answer pairs for conversation memory."""
 

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import ChatHistory, UniversityContent
+from .models import ChatHistory, ManualResponse, UniversityContent
 
 
 @admin.register(UniversityContent)
@@ -29,6 +29,22 @@ class UniversityContentAdmin(admin.ModelAdmin):
             obj.source_url,
             obj.source_url[:72] + ("…" if len(obj.source_url) > 72 else ""),
         )
+
+
+@admin.register(ManualResponse)
+class ManualResponseAdmin(admin.ModelAdmin):
+    list_display = ("question_pattern", "is_active", "answer_preview", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("question_pattern", "manual_answer")
+    list_editable = ("is_active",)
+    ordering = ("-updated_at",)
+
+    @admin.display(description="Cevap önizleme")
+    def answer_preview(self, obj: ManualResponse) -> str:
+        text = (obj.manual_answer or "").strip()
+        if len(text) <= 80:
+            return text
+        return text[:80] + "…"
 
 
 @admin.register(ChatHistory)

@@ -1,5 +1,5 @@
 /**
- * ACUknows — asenkron sohbet akışı
+ * ACU.knows — asenkron sohbet akışı
  */
 (function () {
   "use strict";
@@ -7,14 +7,13 @@
   var API_URL = "/api/chat/";
   var FALLBACK_ERROR =
     "⚠️ Şu an asistan cevap veremiyor, lütfen daha sonra tekrar deneyiniz.";
-  var WELCOME_TEXT =
-    "Aşağıdan mesajınızı yazarak sohbete başlayın.";
 
   var messagesEl = document.getElementById("messages");
   var form = document.getElementById("chat-form");
   var input = document.getElementById("message-input");
   var sendBtn = document.getElementById("send-btn");
   var newChatBtn = document.getElementById("new-chat-btn");
+  var welcomePanel = document.getElementById("welcome-panel");
 
   if (!messagesEl || !form || !input || !sendBtn) {
     return;
@@ -24,26 +23,19 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  function removeWelcome() {
-    var w = messagesEl.querySelector(".messages__welcome");
-    if (w) {
-      w.remove();
-    }
-    messagesEl.classList.remove("messages--empty");
-  }
-
-  function appendWelcome() {
-    var existing = messagesEl.querySelector(".messages__welcome");
-    if (existing) {
+  function setWelcomePanelVisible(visible) {
+    if (!welcomePanel) {
       return;
     }
-    messagesEl.classList.add("messages--empty");
-    var div = document.createElement("div");
-    div.className = "messages__welcome";
-    div.setAttribute("role", "status");
-    div.textContent = WELCOME_TEXT;
-    messagesEl.appendChild(div);
-    scrollToBottom();
+    welcomePanel.classList.toggle("welcome-panel--hidden", !visible);
+  }
+
+  function setMessagesEmptyState(empty) {
+    if (empty) {
+      messagesEl.classList.add("messages--empty");
+    } else {
+      messagesEl.classList.remove("messages--empty");
+    }
   }
 
   function renderSidebarHistory() {
@@ -80,6 +72,7 @@
       if (item.id != null) {
         btn.dataset.chatId = String(item.id);
       }
+      btn.setAttribute("aria-label", "Geçmiş: " + (item.title || "Sohbet"));
       li.appendChild(btn);
       listEl.appendChild(li);
     });
@@ -165,13 +158,27 @@
   if (newChatBtn) {
     newChatBtn.addEventListener("click", function () {
       messagesEl.innerHTML = "";
-      appendWelcome();
+      setMessagesEmptyState(true);
+      setWelcomePanelVisible(true);
       input.value = "";
       autoResize();
       input.focus();
       scrollToBottom();
     });
   }
+
+  document.querySelectorAll(".quick-action").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var q = btn.getAttribute("data-question");
+      if (!q) {
+        return;
+      }
+      input.value = q;
+      autoResize();
+      input.focus();
+      form.requestSubmit();
+    });
+  });
 
   input.addEventListener("input", autoResize);
 
@@ -197,7 +204,8 @@
       return;
     }
 
-    removeWelcome();
+    setWelcomePanelVisible(false);
+    setMessagesEmptyState(false);
     appendBubble("user", text);
     input.value = "";
     autoResize();

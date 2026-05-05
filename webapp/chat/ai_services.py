@@ -8,6 +8,9 @@ from typing import Any
 
 import requests
 from django.conf import settings
+from django.db.models.functions import Length
+
+from chat.models import ManualResponse
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,35 @@ def _request_timeout() -> tuple[float, float]:
     read_sec = float(int(getattr(settings, "OLLAMA_REQUEST_TIMEOUT_SEC", 3600)))
     connect_sec = float(int(getattr(settings, "OLLAMA_REQUEST_CONNECT_SEC", 45)))
     return (connect_sec, read_sec)
+
+
+def _manual_response_if_match(user_query: str) -> str | None:
+    """
+    Aktif ``ManualResponse`` kayıtlarında ``question_pattern`` alt dize eşleşmesi (casefold).
+    Uzun kalıplar önce denenir (daha spesifik öncelik).
+    """
+    q = (user_query or "").strip()
+    if not q:
+        return None
+    needle = q.casefold()
+    try:
+        rows = (
+            ManualResponse.objects.filter(is_active=True)
+            .exclude(question_pattern="")
+            .annotate(_pat_len=Length("question_pattern"))
+            .order_by("-_pat_len", "pk")
+        )
+        for row in rows:
+            pat = (row.question_pattern or "").strip()
+            if not pat:
+                continue
+            if pat.casefold() in needle:
+                ans = (row.manual_answer or "").strip()
+                if ans:
+                    return ans
+    except Exception:
+        logger.exception("ManualResponse lookup failed")
+    return None
 
 
 def _build_rag_prompt(user_query: str, context_block: str) -> str:
@@ -86,6 +118,10 @@ def ask_ai(user_query: str, *, context_limit: int | None = None, timeout_sec: in
         q = (user_query or "").strip()
         if not q:
             return "Lütfen bir soru yazın."
+
+        manual = _manual_response_if_match(q)
+        if manual is not None:
+            return manual
 
         context = ""
         try:

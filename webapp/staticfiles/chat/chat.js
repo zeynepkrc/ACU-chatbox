@@ -1,5 +1,5 @@
 /**
- * ACU AI Asistanı — asenkron sohbet akışı (ADIM 2)
+ * ACU.knows — asenkron sohbet akışı
  */
 (function () {
   "use strict";
@@ -12,6 +12,8 @@
   var form = document.getElementById("chat-form");
   var input = document.getElementById("message-input");
   var sendBtn = document.getElementById("send-btn");
+  var newChatBtn = document.getElementById("new-chat-btn");
+  var welcomePanel = document.getElementById("welcome-panel");
 
   if (!messagesEl || !form || !input || !sendBtn) {
     return;
@@ -19,6 +21,61 @@
 
   function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function setWelcomePanelVisible(visible) {
+    if (!welcomePanel) {
+      return;
+    }
+    welcomePanel.classList.toggle("welcome-panel--hidden", !visible);
+  }
+
+  function setMessagesEmptyState(empty) {
+    if (empty) {
+      messagesEl.classList.add("messages--empty");
+    } else {
+      messagesEl.classList.remove("messages--empty");
+    }
+  }
+
+  function renderSidebarHistory() {
+    var dataEl = document.getElementById("chat-history-data");
+    var listEl = document.getElementById("chat-history-list");
+    var emptyHint = document.getElementById("sidebar-empty-hint");
+    if (!listEl) {
+      return;
+    }
+    var items = [];
+    try {
+      if (dataEl && dataEl.textContent) {
+        items = JSON.parse(dataEl.textContent);
+      }
+    } catch (e) {
+      items = [];
+    }
+    listEl.innerHTML = "";
+    if (!items.length) {
+      if (emptyHint) {
+        emptyHint.hidden = false;
+      }
+      return;
+    }
+    if (emptyHint) {
+      emptyHint.hidden = true;
+    }
+    items.forEach(function (item) {
+      var li = document.createElement("li");
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "sidebar__item";
+      btn.textContent = item.title || item.name || "Sohbet";
+      if (item.id != null) {
+        btn.dataset.chatId = String(item.id);
+      }
+      btn.setAttribute("aria-label", "Geçmiş: " + (item.title || "Sohbet"));
+      li.appendChild(btn);
+      listEl.appendChild(li);
+    });
   }
 
   function appendBubble(role, text, extraClass) {
@@ -40,7 +97,8 @@
 
   function appendTypingBubble() {
     var article = document.createElement("article");
-    article.className = "message message--assistant message--loading message--typing";
+    article.className =
+      "message message--assistant message--loading message--typing";
     article.setAttribute("aria-busy", "true");
     article.setAttribute("aria-live", "polite");
 
@@ -95,13 +153,48 @@
     });
   }
 
+  renderSidebarHistory();
+
+  if (newChatBtn) {
+    newChatBtn.addEventListener("click", function () {
+      messagesEl.innerHTML = "";
+      setMessagesEmptyState(true);
+      setWelcomePanelVisible(true);
+      input.value = "";
+      autoResize();
+      input.focus();
+      scrollToBottom();
+    });
+  }
+
+  document.querySelectorAll(".quick-action").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var q = btn.getAttribute("data-question");
+      if (!q) {
+        return;
+      }
+      input.value = q;
+      autoResize();
+      input.focus();
+      form.requestSubmit();
+    });
+  });
+
   input.addEventListener("input", autoResize);
 
   input.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      form.requestSubmit();
+    if (e.isComposing) {
+      return;
     }
+    var isEnter = e.key === "Enter" || e.key === "NumpadEnter";
+    if (!isEnter) {
+      return;
+    }
+    if (e.shiftKey) {
+      return;
+    }
+    e.preventDefault();
+    form.requestSubmit();
   });
 
   form.addEventListener("submit", function (e) {
@@ -111,6 +204,8 @@
       return;
     }
 
+    setWelcomePanelVisible(false);
+    setMessagesEmptyState(false);
     appendBubble("user", text);
     input.value = "";
     autoResize();
