@@ -1,0 +1,229 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <title>ACU.knows</title>
+  <link rel="stylesheet" href="{% static 'chat/css/style.css' %}">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Kenar çubuğu">
+      <div class="sidebar__brand">
+        <span class="sidebar__logo" aria-hidden="true">A.k</span>
+      </div>
+      <button type="button" class="sidebar__newchat" id="new-chat-btn">
+        + Yeni sohbet
+      </button>
+      <div class="sidebar__block">
+        <h2 class="sidebar__label">Recents</h2>
+        <ul class="sidebar__list" id="chat-history-list" role="list"></ul>
+        <p class="sidebar__empty" id="sidebar-empty-hint">Henüz kayıtlı sohbet yok.</p>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="hero">
+        <h1 class="hero__title">ACU.knows AI – HOŞGELDİNİZ</h1>
+      </header>
+
+      <div class="chat-scroll" id="chat-scroll">
+        <div class="chat-container">
+          <div
+            class="messages{% if not chat_messages %} messages--empty{% endif %}"
+            id="messages"
+            tabindex="-1"
+            aria-label="Sohbet mesajları"
+          >
+            {% if not chat_messages %}
+            <div class="messages__welcome" role="status">
+              Aşağıdan mesajınızı yazarak sohbete başlayın.
+            </div>
+            {% else %}
+            {% for msg in chat_messages %}
+            <article class="message message--{% if msg.role == 'user' %}user{% else %}assistant{% endif %}">
+              <div class="message__meta">{% if msg.role == 'user' %}Siz{% else %}Asistan{% endif %}</div>
+              <p class="message__body">{{ msg.body }}</p>
+            </article>
+            {% endfor %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {# Sabit alt bölüm: flex ile daima görünür; chat-scroll ile çakışmaz #}
+      <div class="main-bottom">
+        <footer class="composer" role="contentinfo">
+          <div class="composer__wrap">
+            <form class="composer__form" id="chat-form" autocomplete="off">
+              <label class="sr-only" for="message-input">Mesajınız</label>
+              <textarea
+                id="message-input"
+                class="composer__input"
+                name="message"
+                rows="1"
+                placeholder="Mesajınızı yazın..."
+                required
+                maxlength="8000"
+                aria-label="Mesajınızı yazın"
+              ></textarea>
+              <button type="submit" class="composer__send" id="send-btn">Gönder</button>
+            </form>
+          </div>
+        </footer>
+        <p class="main-legal">
+          ACU.knows can make mistakes. Check important info. See
+          <button type="button" class="main-legal__link" id="cookie-prefs-open">Cookie Preferences</button>.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  {# Cookie preferences modal #}
+  <div class="cookie-modal" id="cookie-modal" hidden aria-hidden="true">
+    <div class="cookie-modal__backdrop" id="cookie-modal-backdrop" tabindex="-1"></div>
+    <div
+      class="cookie-modal__dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cookie-modal-title"
+      aria-describedby="cookie-modal-desc"
+    >
+      <button type="button" class="cookie-modal__close" id="cookie-modal-close" aria-label="Kapat">
+        <span aria-hidden="true">&times;</span>
+      </button>
+      <h2 class="cookie-modal__title" id="cookie-modal-title">Cookie preferences</h2>
+      <p class="cookie-modal__intro" id="cookie-modal-desc">
+        Websites and apps use cookies and other identifiers to store and retrieve information on your device.
+        Some of this information may be shared with third parties for different purposes. Use the tool below
+        to manage your preferences. You can change them anytime.
+      </p>
+
+      <ul class="cookie-modal__list" role="list">
+        <li class="cookie-section">
+          <div class="cookie-section__text">
+            <h3 class="cookie-section__name">Strictly necessary</h3>
+            <p class="cookie-section__desc">
+              These cookies are required for the site to work and can’t be turned off. They support essential
+              functions like security, user authentication, and customer support.
+            </p>
+          </div>
+          <div class="cookie-section__control">
+            <button
+              type="button"
+              class="cookie-toggle cookie-toggle--locked cookie-toggle--on"
+              disabled
+              aria-disabled="true"
+              aria-label="Strictly necessary (always on)"
+            >
+              <span class="cookie-toggle__track" aria-hidden="true"><span class="cookie-toggle__knob"></span></span>
+            </button>
+          </div>
+        </li>
+        <li class="cookie-section">
+          <div class="cookie-section__text">
+            <h3 class="cookie-section__name">Analytics</h3>
+            <p class="cookie-section__desc">
+              These cookies help us understand how visitors use our site. They allow us to measure traffic and
+              improve site performance.
+            </p>
+          </div>
+          <div class="cookie-section__control">
+            <button type="button" class="cookie-toggle" data-cookie="analytics" aria-pressed="false" aria-label="Analytics cookies">
+              <span class="cookie-toggle__track" aria-hidden="true"><span class="cookie-toggle__knob"></span></span>
+            </button>
+          </div>
+        </li>
+        <li class="cookie-section">
+          <div class="cookie-section__text">
+            <h3 class="cookie-section__name">Marketing measurement</h3>
+            <p class="cookie-section__desc">
+              These cookies help us measure the effectiveness of our marketing campaigns.
+            </p>
+          </div>
+          <div class="cookie-section__control">
+            <button type="button" class="cookie-toggle" data-cookie="marketing-measurement" aria-pressed="false" aria-label="Marketing measurement cookies">
+              <span class="cookie-toggle__track" aria-hidden="true"><span class="cookie-toggle__knob"></span></span>
+            </button>
+          </div>
+        </li>
+        <li class="cookie-section">
+          <div class="cookie-section__text">
+            <h3 class="cookie-section__name">Personalized marketing</h3>
+            <p class="cookie-section__desc">
+              This helps us personalize and measure ACU.knows marketing on third-party platforms.
+            </p>
+          </div>
+          <div class="cookie-section__control">
+            <button type="button" class="cookie-toggle" data-cookie="personalized-marketing" aria-pressed="false" aria-label="Personalized marketing cookies">
+              <span class="cookie-toggle__track" aria-hidden="true"><span class="cookie-toggle__knob"></span></span>
+            </button>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <script type="application/json" id="chat-history-data">
+[
+  {"id": "p1", "title": "Akademik takvim"},
+  {"id": "p2", "title": "Kayıt yenileme"},
+  {"id": "p3", "title": "Kampüs iletişim"}
+]
+  </script>
+
+  <script src="{% static 'chat/chat.js' %}" defer></script>
+  <script>
+    (function () {
+      function scrollToEnd() {
+        var el = document.getElementById("messages");
+        if (el) el.scrollTop = el.scrollHeight;
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", scrollToEnd);
+      } else {
+        scrollToEnd();
+      }
+
+      var modal = document.getElementById("cookie-modal");
+      var openBtn = document.getElementById("cookie-prefs-open");
+      var closeBtn = document.getElementById("cookie-modal-close");
+      var backdrop = document.getElementById("cookie-modal-backdrop");
+
+      function openModal() {
+        if (!modal) return;
+        modal.hidden = false;
+        modal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("cookie-modal-open");
+        closeBtn && closeBtn.focus();
+      }
+
+      function closeModal() {
+        if (!modal) return;
+        modal.hidden = true;
+        modal.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("cookie-modal-open");
+        openBtn && openBtn.focus();
+      }
+
+      if (openBtn) openBtn.addEventListener("click", openModal);
+      if (closeBtn) closeBtn.addEventListener("click", closeModal);
+      if (backdrop) backdrop.addEventListener("click", closeModal);
+
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && modal && !modal.hidden) closeModal();
+      });
+
+      document.querySelectorAll(".cookie-toggle:not([disabled])").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var on = btn.getAttribute("aria-pressed") === "true";
+          btn.setAttribute("aria-pressed", on ? "false" : "true");
+          btn.classList.toggle("cookie-toggle--on", !on);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
