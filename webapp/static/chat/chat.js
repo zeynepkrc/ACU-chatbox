@@ -205,6 +205,14 @@
     var typingEl = appendTypingBubble();
     setLoading(true);
 
+    var longWaitTimer = window.setTimeout(function () {
+      var label = typingEl && typingEl.querySelector(".typing-label");
+      if (label) {
+        label.textContent =
+          "Model yanıt hazırlıyor (bu birkaç dakika sürebilir)…";
+      }
+    }, 45000);
+
     fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -233,6 +241,7 @@
         appendBubble("assistant", FALLBACK_ERROR, "message--error");
       })
       .finally(function () {
+        window.clearTimeout(longWaitTimer);
         setLoading(false);
         input.focus();
         scrollToBottom();

@@ -1,7 +1,9 @@
 import json
 import logging
+import traceback
 
-from django.http import JsonResponse
+from django.conf import settings
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -10,6 +12,34 @@ from .ai_services import ask_ai
 from .models import ChatHistory
 
 logger = logging.getLogger(__name__)
+
+
+def _json_error(status: int, code: str, message: str, **extra) -> JsonResponse:
+    payload = {"ok": False, "error": message, "code": code}
+    for key, val in extra.items():
+        if val is not None:
+            payload[key] = val
+    return JsonResponse(payload, status=status, json_dumps_params={"ensure_ascii": False})
+
+
+def _json_ok(**payload) -> JsonResponse:
+    body = {"ok": True, **payload}
+    return JsonResponse(body, status=200, json_dumps_params={"ensure_ascii": False})
+
+
+@require_http_methods(["GET"])
+def test_chat(request):
+    """Geçici test arayüzü (Berya üretim UI'ına kadar)."""
+    try:
+        return render(request, "chat/test_chat.html")
+    except Exception as exc:
+        logger.exception("test_chat render failed")
+        html = (
+            "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Test sohbet</title></head>"
+            "<body><p>Şablon yüklenemedi. API: <code>POST /api/chat/</code></p>"
+            f"<pre>{exc}</pre></body></html>"
+        )
+        return HttpResponse(html, status=200, content_type="text/html; charset=utf-8")
 
 
 def chat_ui(request):
@@ -30,32 +60,72 @@ def chat_ui(request):
 @require_http_methods(["POST"])
 def chat_api(request):
     """
-    POST JSON body: {"query": "..."} (aliases: ``message``, ``question``).
-
-    Returns JSON: ``{"ok": true, "answer": "...", "query": "..."}`` on success.
+    POST JSON. Her durumda JSON yanıt (HTML üretilmez).
+    Üretim modeli: ``settings.OLLAMA_MODEL`` (ör. ``qwen2.5:7b``), Ollama ``OLLAMA_BASE_URL``.
     """
     try:
-        data = json.loads(request.body.decode("utf-8") or "{}")
-    except json.JSONDecodeError:
-        return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
+        try:
+            raw = request.body.decode("utf-8") if request.body else ""
+            data = json.loads(raw) if raw.strip() else {}
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            logger.info("chat_api: invalid or empty JSON body")
+            return _json_error(400, "invalid_json", "Geçersiz JSON gövdesi.")
 
-    user_query = (
-        data.get("query")
-        or data.get("message")
-        or data.get("question")
-        or ""
-    )
-    user_query = str(user_query).strip()
-    if not user_query:
-        return JsonResponse({"ok": False, "error": "missing_query"}, status=400)
+        user_query = (
+            data.get("query")
+            or data.get("message")
+            or data.get("question")
+            or ""
+        )
+        try:
+            user_query = str(user_query).strip()
+        except Exception:
+            user_query = ""
 
-    try:
-        answer = ask_ai(user_query)
-    except RuntimeError as exc:
-        return JsonResponse({"ok": False, "error": str(exc)}, status=502)
-    except Exception:
-        logger.exception("ask_ai failed")
-        return JsonResponse({"ok": False, "error": "generation_failed"}, status=500)
+        if not user_query:
+            return _json_error(400, "missing_query", "Soru metni gerekli (query / message / question).")
 
-    ChatHistory.objects.create(user_query=user_query, ai_response=answer)
-    return JsonResponse({"ok": True, "answer": answer, "query": user_query})
+        try:
+            answer = ask_ai(user_query)
+        except Exception as exc:
+            logger.exception("ask_ai raised unexpectedly")
+            return _json_error(
+                502,
+                "generation_error",
+                "Üretim sırasında bir hata oluştu. Lütfen tekrar deneyin.",
+                detail=str(exc) if settings.DEBUG else None,
+                traceback=traceback.format_exc() if settings.DEBUG else None,
+            )
+
+        if not isinstance(answer, str):
+            answer = str(answer)
+        answer = answer.strip()
+        if not answer:
+            logger.warning("chat_api: empty answer from ask_ai")
+            answer = (
+                "Yanıt üretilemedi. Soruyu biraz kısaltıp veya farklı kelimelerle tekrar deneyin; "
+                "model yükü (qwen2.5) nedeniyle beklemek de gerekebilir."
+            )
+
+        model_name = getattr(settings, "OLLAMA_MODEL", "")
+
+        try:
+            ChatHistory.objects.create(user_query=user_query, ai_response=answer)
+        except Exception as exc:
+            logger.exception("ChatHistory save failed")
+            extra = {"warning": "history_not_saved", "model": model_name}
+            if settings.DEBUG:
+                extra["history_error"] = str(exc)
+            return _json_ok(answer=answer, query=user_query, **extra)
+
+        return _json_ok(answer=answer, query=user_query, model=model_name)
+
+    except Exception as exc:
+        logger.exception("chat_api fatal failure")
+        return _json_error(
+            500,
+            "internal_error",
+            "Sunucu hatası. Lütfen kısa bir süre sonra tekrar deneyin.",
+            detail=str(exc) if settings.DEBUG else None,
+            traceback=traceback.format_exc() if settings.DEBUG else None,
+        )
