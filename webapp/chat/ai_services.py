@@ -15,7 +15,7 @@ _JSON_HEADERS = {"Content-Type": "application/json", "Accept": "application/json
 
 
 def _ollama_generate_url() -> str:
-    base = str(getattr(settings, "OLLAMA_BASE_URL", "http://ollama:11434")).rstrip("/")
+    base = str(getattr(settings, "OLLAMA_BASE_URL", "http://127.0.0.1:11434")).rstrip("/")
     return f"{base}/api/generate"
 
 

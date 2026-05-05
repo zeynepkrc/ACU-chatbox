@@ -5,6 +5,14 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# docker-compose içindeki ``db`` servisi; yerel runserver için ``localhost`` + yayınlanan port.
+_DATABASE_HOST = os.environ.get("DATABASE_HOST", "localhost").lower().strip()
+if _DATABASE_HOST in ("db", "postgres"):
+    _DEFAULT_DATABASE_PORT = "5432"
+else:
+    # Host makineden Docker Postgres'e: compose varsayılanı 5433:5432
+    _DEFAULT_DATABASE_PORT = os.environ.get("POSTGRES_PUBLISH_PORT", "5433")
+
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "unsafe-dev-key-change-me")
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
@@ -65,7 +73,7 @@ DATABASES = {
         "USER": os.environ.get("POSTGRES_USER", "acu"),
         "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "acu"),
         "HOST": os.environ.get("DATABASE_HOST", "localhost"),
-        "PORT": os.environ.get("DATABASE_PORT", "5432"),
+        "PORT": os.environ.get("DATABASE_PORT", _DEFAULT_DATABASE_PORT),
     }
 }
 
@@ -98,8 +106,9 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:8001",
 ]
 
-# Ollama: Docker Compose içinde servis adı ``ollama`` — web konteynerinden localhost kullanılmaz.
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+# Ollama: Docker web servisi ``OLLAMA_BASE_URL=http://ollama:11434`` ile override eder.
+# Yerel ``manage.py runserver`` için varsayılan host portu 11434.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
 # Qwen vb. ağır modeller CPU'da uzun sürebilir; connect kısa, okuma üst sınırlı tutulur.
 OLLAMA_REQUEST_CONNECT_SEC = int(os.environ.get("OLLAMA_REQUEST_CONNECT_SEC", "45"))
